@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>司机扫码点货</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ==================== 设计系统 ==================== */
+:root {
+  --c-primary: #1A73E8;
+  --c-primary-dark: #1557B0;
+  --c-primary-light: #E8F0FE;
+  --c-success: #34A853;
+  --c-success-dark: #2D9249;
+  --c-success-light: #E6F4EA;
+  --c-danger: #EA4335;
+  --c-danger-light: #FDECEA;
+  --c-warning: #F59E0B;
+  --c-warning-light: #FEF3C7;
+  --c-text: #202124;
+  --c-text-secondary: #5F6368;
+  --c-text-hint: #9AA0A6;
+  --c-bg: #F7F8FC;
+  --c-border: #DADCE0;
+  --c-border-light: #E8EAED;
+  --c-white: #FFFFFF;
+  --radius-card: 12px;
+  --radius-item: 10px;
+  --radius-btn: 8px;
+  --shadow-card: 0 2px 8px rgba(0,0,0,0.08);
+  --shadow-item: 0 1px 3px rgba(0,0,0,0.05);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--c-bg); color: var(--c-text); }
+body { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; }
+
+/* ==================== 状态栏 ==================== */
+.status-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 24px 6px; background: var(--c-white); flex-shrink: 0; }
+.status-bar.dark { background: var(--c-primary); }
+.status-bar .time { font-size: 15px; font-weight: 600; color: var(--c-text); }
+.status-bar.dark .time { color: var(--c-white); }
+.status-bar .status-right { display: flex; gap: 6px; align-items: center; }
+
+/* ==================== 顶部导航 ==================== */
+.header { background: var(--c-primary); color: var(--c-white); padding: 6px 12px 8px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.header h1 { font-size: 17px; font-weight: 600; flex: 1; }
+.header .back-btn { background: none; border: none; color: var(--c-white); cursor: pointer; padding: 4px; display: flex; align-items: center; }
+
+/* ==================== 页面容器 ==================== */
+.page { flex: 1; overflow-y: auto; display: none; -webkit-overflow-scrolling: touch; }
+.page.active { display: block; }
+
+/* ==================== 按钮 ==================== */
+.btn { padding: 14px 24px; border: none; border-radius: var(--radius-btn); font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.15s; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-family: inherit; }
+.btn-primary { background: var(--c-primary); color: var(--c-white); width: 100%; }
+.btn-primary:active { background: var(--c-primary-dark); transform: scale(0.98); }
+.btn-secondary { background: var(--c-primary-light); color: var(--c-primary); }
+.btn-outline { background: var(--c-white); color: var(--c-primary); border: 1.5px solid var(--c-primary); }
+.btn-sm { padding: 10px 16px; font-size: 14px; font-weight: 500; }
+.btn-block { width: 100%; }
+
+/* ==================== 搜索页 ==================== */
+.search-content { padding: 20px; }
+.search-title { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+.search-subtitle { font-size: 14px; color: var(--c-text-secondary); margin-bottom: 20px; }
+
+.qr-scan-card { background: var(--c-white); border-radius: var(--radius-card); padding: 32px 20px; text-align: center; margin-bottom: 16px; box-shadow: var(--shadow-card); cursor: pointer; }
+.qr-icon { width: 80px; height: 80px; margin: 0 auto 12px; }
+.qr-hint { font-size: 14px; color: var(--c-text-secondary); }
+
+.input-section { margin-bottom: 16px; }
+.input-label { font-size: 13px; font-weight: 500; color: var(--c-text-secondary); margin-bottom: 8px; }
+.input-field { width: 100%; height: 52px; padding: 0 16px; font-size: 16px; border: 1.5px solid var(--c-border); border-radius: var(--radius-btn); background: var(--c-white); font-family: inherit; transition: border-color 0.15s; }
+.input-field:focus { outline: none; border-color: var(--c-primary); }
+.input-field::placeholder { color: var(--c-text-hint); }
+
+.paste-card { display: flex; align-items: center; gap: 12px; background: var(--c-white); border: 1.5px solid var(--c-border); border-radius: var(--radius-btn); padding: 14px 16px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.15s; }
+.paste-card:active { border-color: var(--c-primary); }
+.paste-card .paste-icon { width: 22px; height: 22px; flex-shrink: 0; }
+.paste-card .paste-text { flex: 1; }
+.paste-card .paste-title { font-size: 14px; font-weight: 500; }
+.paste-card .paste-sub { font-size: 12px; color: var(--c-text-hint); margin-top: 2px; }
+.paste-input { width: 100%; padding: 12px 14px; font-size: 14px; border: 1px solid var(--c-border); border-radius: var(--radius-btn); margin-top: 8px; font-family: inherit; resize: none; }
+
+.error-msg { color: var(--c-danger); font-size: 14px; margin-top: 12px; padding: 10px 14px; background: var(--c-danger-light); border-radius: var(--radius-btn); display: none; }
+.error-msg.show { display: block; }
+
+.recent-section { margin-top: 24px; }
+.recent-title { font-size: 15px; font-weight: 600; color: var(--c-text); margin-bottom: 10px; }
+.recent-item { display: flex; align-items: center; gap: 12px; background: var(--c-white); border-radius: var(--radius-item); padding: 14px; margin-bottom: 8px; box-shadow: var(--shadow-item); cursor: pointer; transition: transform 0.1s; }
+.recent-item:active { transform: scale(0.98); }
+.recent-item .route-badge { width: 44px; height: 44px; background: var(--c-primary-light); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: var(--c-primary); flex-shrink: 0; }
+.recent-item .recent-info { flex: 1; }
+.recent-item .recent-name { font-size: 14px; font-weight: 500; }
+.recent-item .recent-date { font-size: 12px; color: var(--c-text-hint); margin-top: 2px; }
+
+/* ==================== 点货页核心样式 ==================== */
+.check-content { padding: 12px; }
+
+/* 餐厅信息卡片 */
+.restaurant-card { background: var(--c-white); border-radius: var(--radius-card); padding: 14px 16px; margin-bottom: 14px; box-shadow: var(--shadow-card); }
+.restaurant-card .r-name { font-size: 19px; font-weight: 600; color: var(--c-primary); margin-bottom: 4px; }
+.restaurant-card .r-meta { font-size: 13px; color: var(--c-text-secondary); display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.restaurant-card .r-meta .sep { color: var(--c-text-hint); }
+.restaurant-card .r-progress { font-size: 13px; font-weight: 600; color: var(--c-text); margin-left: auto; white-space: nowrap; }
+
+/* 进度条 */
+.progress-section { margin-bottom: 12px; }
+.progress-bar-bg { width: 100%; height: 8px; background: #E5E7EB; border-radius: 4px; overflow: hidden; }
+.progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--c-success) 0%, #4CAF50 100%); border-radius: 4px; transition: width 0.35s ease; }
+.progress-text { font-size: 13px; font-weight: 500; color: var(--c-text-secondary); margin-top: 4px; display: flex; justify-content: space-between; align-items: center; }
+.progress-text .highlight { color: var(--c-success); font-weight: 700; }
+
+/* 分类分组标题 */
+.cat-header { font-size: 12px; font-weight: 600; color: var(--c-text-secondary); padding: 8px 4px 4px; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px; }
+.cat-header::after { content: ''; flex: 1; height: 1px; background: var(--c-border-light); }
+
+/* ==================== 新版商品卡片 ==================== */
+.item-check-row {
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 10px;
+  margin-bottom: 6px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+}
+.item-check-row:active { transform: scale(0.99); }
+
+/* 状态：已确认 */
+.item-check-row.is-done {
+  background: #F0FDF4;
+  border-color: #86EFAC;
+}
+.item-check-row.is-done::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: #10B981;
+}
+
+/* 状态：缺货 */
+.item-check-row.is-shortage {
+  background: #FEF2F2;
+  border-color: #FCA5A5;
+}
+.item-check-row.is-shortage::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: #EF4444;
+}
+/* 多货状态 */
+.item-check-row.is-overage {
+  background: #EFF6FF;
+  border-color: #93C5FD;
+}
+.item-check-row.is-overage::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: #3B82F6;
+}
+
+/* 左侧：状态图标 */
+/* 状态色条通过 .item-check-row::before 体现（左侧 4px），这里不再需要独立状态图标 */
+.item-status-mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #D1D5DB;
+  background: #F9FAFB;
+  flex-shrink: 0;
+  transition: all 0.2s;
+  position: relative;
+}
+.item-status-mark.confirmed {
+  background: #10B981;
+  border-color: #10B981;
+}
+.item-status-mark.confirmed::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #FFFFFF;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.item-status-mark.shortage {
+  background: #EF4444;
+  border-color: #EF4444;
+}
+
+/* 中间：商品信息 */
+.item-main { flex: 1; min-width: 0; }
+
+.item-line-1 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+  min-width: 0;
+}
+
+.item-line-2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #9CA3AF;
+  line-height: 1.3;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.item-date {
+  color: #1F2937;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  font-size: 12.5px;
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  padding: 2px 8px;
+  border-radius: 5px;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.item-supplier {
+  color: #9CA3AF;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.item-dot {
+  color: #D1D5DB;
+  flex-shrink: 0;
+  font-size: 11px;
+  margin: 0 2px;
+}
+
+/* 第一行：编码 + 名称 */
+.item-code {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #374151;
+  background: #F3F4F6;
+  border: 1px solid #E5E7EB;
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-family: 'SF Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.item-name {
+  font-size: 14.5px;
+  font-weight: 500;
+  color: #111827;
+  line-height: 1.3;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 第二行：生产日期 + 单位 + 供应商（次要信息） */
+
+/* 右侧：数量 */
+.item-qty-wrap { display: flex; align-items: baseline; justify-content: flex-end; gap: 2px; flex-shrink: 0; white-space: nowrap; }
+.item-qty { font-size: 20px; font-weight: 700; color: #111827; line-height: 1; font-variant-numeric: tabular-nums; }
+.item-unit { font-size: 12px; color: #9CA3AF; font-weight: 400; }
+
+/* 缺货状态时：数量显示变红 + 显示差异 */
+.item-check-row.is-shortage .item-qty { color: #DC2626; }
+.shortage-note { font-size: 10.5px; color: #DC2626; font-weight: 600; margin-top: 3px; }
+  .item-check-row.is-overage .item-qty { color: #2563EB; }
+  .overage-note { font-size: 10.5px; color: #2563EB; font-weight: 600; margin-top: 3px; }
+
+/* 已确认时的副标签 */
+.done-tag {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--c-success);
+  background: var(--c-success-light);
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-top: 3px;
+  display: inline-block;
+}
+
+/* 导航按钮 */
+.check-nav { display: flex; gap: 8px; margin-top: 14px; padding-bottom: 16px; }
+.check-nav .btn { flex: 1; }
+
+/* ==================== 汇总页 ==================== */
+.summary-content { padding: 10px 12px; }
+
+.route-overview-card { background: var(--c-white); border-radius: var(--radius-card); padding: 20px; margin-bottom: 14px; box-shadow: var(--shadow-card); }
+.route-overview-card .overview-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.route-overview-card .route-title { font-size: 20px; font-weight: 600; }
+.route-overview-card .route-info { font-size: 12px; color: var(--c-text-secondary); }
+.route-overview-card .progress-bar-bg { margin-bottom: 4px; }
+
+.all-done-banner { background: var(--c-success); border-radius: var(--radius-card); padding: 24px 20px; text-align: center; margin-bottom: 14px; animation: fadeInUp 0.4s ease; }
+.all-done-banner .banner-check { width: 36px; height: 36px; margin: 0 auto 8px; }
+.all-done-banner .banner-title { font-size: 20px; font-weight: 700; color: var(--c-white); margin-bottom: 4px; }
+.all-done-banner .banner-sub { font-size: 14px; color: rgba(255,255,255,0.9); }
+
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* 汇总列表 */
+.summary-list { list-style: none; }
+.summary-row { display: flex; align-items: center; padding: 14px; background: var(--c-white); border: 1.5px solid var(--c-border-light); border-radius: var(--radius-item); margin-bottom: 5px; gap: 12px; cursor: pointer; transition: all 0.15s; }
+.summary-row:active { transform: scale(0.98); }
+.summary-row.complete { border-color: var(--c-success); background: var(--c-success-light); }
+.summary-row.active { border-color: var(--c-primary); box-shadow: 0 2px 8px rgba(26,115,232,0.12); }
+.summary-row.shortage { border-color: #EF9A9A; background: #FFF5F5; }
+
+.summary-row .status-circle { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+.summary-row.complete .status-circle { background: var(--c-success); color: var(--c-white); }
+.summary-row.active .status-circle { background: var(--c-primary); color: var(--c-white); }
+.summary-row.shortage .status-circle { background: var(--c-danger); color: var(--c-white); }
+.summary-row.pending .status-circle { background: #F1F3F4; color: var(--c-text-hint); }
+
+.summary-row .summary-info { flex: 1; min-width: 0; }
+.summary-row .summary-name { font-size: 16px; font-weight: 500; }
+.summary-row .summary-count { font-size: 13px; margin-top: 3px; }
+.summary-row.complete .summary-count { color: var(--c-success); font-weight: 600; }
+.summary-row.active .summary-count { color: var(--c-primary); font-weight: 500; }
+.summary-row.shortage .summary-count { color: var(--c-danger); font-weight: 500; }
+.summary-row.pending .summary-count { color: var(--c-text-hint); }
+.summary-row .summary-stop { font-size: 12px; color: var(--c-text-hint); flex-shrink: 0; white-space: nowrap; }
+
+/* ==================== 缺货弹窗 ==================== */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: flex-end; z-index: 9999; justify-content: center; }
+.modal-sheet { background: var(--c-white); border-radius: 16px 16px 0 0; width: 100%; max-width: 480px; padding: 24px 20px 32px; animation: slideUp 0.25s ease; }
+.modal-title { font-size: 18px; font-weight: 700; margin-bottom: 4px; color: var(--c-text); }
+.modal-sub { font-size: 13px; color: var(--c-text-secondary); margin-bottom: 20px; }
+.modal-row { margin-bottom: 12px; }
+.modal-label { font-size: 13px; font-weight: 500; color: var(--c-text-secondary); margin-bottom: 6px; }
+.modal-info-box { background: var(--c-bg); border-radius: var(--radius-item); padding: 12px 14px; margin-bottom: 16px; }
+.modal-info-line { font-size: 14px; color: var(--c-text); margin-bottom: 4px; display: flex; justify-content: space-between; }
+.modal-info-line:last-child { margin-bottom: 0; }
+.modal-info-line .val { font-weight: 600; color: var(--c-danger); }
+.modal-qty-input { width: 100%; height: 52px; padding: 0 16px; font-size: 18px; font-weight: 600; border: 2px solid var(--c-border); border-radius: var(--radius-btn); text-align: center; font-family: inherit; transition: border-color 0.15s; }
+.modal-qty-input:focus { outline: none; border-color: var(--c-primary); }
+.modal-btns { display: flex; gap: 10px; }
+.modal-btns .btn { flex: 1; }
+.modal-btns .btn-danger { background: var(--c-danger); color: white; }
+.modal-btns .btn-danger:active { background: #C62828; }
+.modal-btns .btn-ghost { background: var(--c-bg); color: var(--c-text-secondary); border: none; }
+
+/* ==================== 解析验证横幅 ==================== */
+.verify-banner {
+  background: linear-gradient(135deg, #E8F5E9 0%, #F1F8E9 100%);
+  border: 1.5px solid #81C784;
+  border-radius: var(--radius-card);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.verify-banner .vb-title { font-weight: 700; color: #2E7D32; margin-bottom: 6px; font-size: 14px; }
+.verify-banner .vb-stats { display: flex; gap: 16px; flex-wrap: wrap; }
+.verify-banner .vb-stat { color: #388E3C; }
+.verify-banner .vb-stat strong { font-weight: 700; font-size: 16px; }
+.verify-banner .vb-ok { color: #43A047; font-weight: 600; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<!-- ==================== 搜索页 ==================== -->
+<div class="page active" id="page-search">
+  <div class="search-content">
+    <div class="search-title">送货单</div>
+    <div class="search-subtitle">扫码或输入线路号获取电子送货单</div>
+
+    <div class="qr-scan-card" onclick="document.getElementById('orderInput').focus()">
+      <div class="qr-icon">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none"><path d="M6 6L30 6L30 12L12 12L12 30L6 30Z" fill="#1A73E8"/><path d="M74 6L50 6L50 12L68 12L68 30L74 30Z" fill="#1A73E8"/><path d="M6 74L30 74L30 68L12 68L12 50L6 50Z" fill="#1A73E8"/><path d="M74 74L50 74L50 68L68 68L68 50L74 50Z" fill="#1A73E8"/><rect x="36" y="36" width="6" height="6" rx="1" fill="#1A73E8"/><rect x="48" y="36" width="6" height="6" rx="1" fill="#34A853"/><rect x="36" y="48" width="6" height="6" rx="1" fill="#34A853"/><rect x="48" y="48" width="6" height="6" rx="1" fill="#1A73E8"/><rect x="12" y="36" width="6" height="6" rx="1" fill="#1A73E8" opacity="0.4"/><rect x="60" y="36" width="6" height="6" rx="1" fill="#34A853" opacity="0.4"/><rect x="36" y="12" width="6" height="6" rx="1" fill="#1A73E8" opacity="0.4"/><rect x="48" y="12" width="6" height="6" rx="1" fill="#34A853" opacity="0.4"/><rect x="60" y="12" width="6" height="6" rx="1" fill="#1A73E8" opacity="0.4"/><rect x="36" y="60" width="6" height="6" rx="1" fill="#1A73E8" opacity="0.4"/><rect x="48" y="60" width="6" height="6" rx="1" fill="#34A853" opacity="0.4"/><rect x="60" y="60" width="6" height="6" rx="1" fill="#1A73E8" opacity="0.4"/></svg>
+      </div>
+      <div class="qr-hint">将二维码对准框内扫描</div>
+    </div>
+
+    <div class="input-section">
+      <div class="input-label">或输入线路号</div>
+      <input type="text" id="orderInput" class="input-field" placeholder="线路号，如：1037" autocomplete="off" onkeydown="if(event.key==='Enter')searchOrders()">
+      <button class="btn btn-primary" onclick="searchOrders()" style="margin-top:8px;">查找送货单</button>
+    </div>
+
+    <div class="paste-card" onclick="pasteImport()">
+      <div class="paste-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5" y="4" width="14" height="17" rx="2" stroke="#5F6368" stroke-width="2" fill="none"/><rect x="9" y="2" width="6" height="4" rx="1" fill="#5F6368"/><path d="M9 11H15" stroke="#5F6368" stroke-width="2" stroke-linecap="round"/><path d="M9 15H13" stroke="#5F6368" stroke-width="2" stroke-linecap="round"/></svg>
+      </div>
+      <div class="paste-text">
+        <div class="paste-title">从剪贴板导入</div>
+        <div class="paste-sub">粘贴管理员发送的数据</div>
+      </div>
+    </div>
+    <textarea id="manualPasteInput" class="paste-input" placeholder="或在此粘贴管理员发送的数据" rows="2"></textarea>
+    <button class="btn btn-outline btn-sm btn-block" onclick="manualPasteImport()" style="margin-top: 4px;">手动粘贴导入</button>
+
+    <p class="error-msg" id="searchError"></p>
+    <div id="orderListResult"></div>
+
+    <div class="recent-section" id="recentSection">
+      <div class="recent-title">最近送货单</div>
+      <div id="recentList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 点货页 ==================== -->
+<div class="page" id="page-check">
+  <div class="header">
+    <button class="back-btn" onclick="goToSearch()">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M15 6L9 12L15 18" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <h1 id="checkRouteName">点货</h1>
+  </div>
+  <div class="check-content">
+    <div class="restaurant-card">
+      <div class="r-name" id="currentRestaurant">--</div>
+      <div class="r-meta" id="restaurantMeta">
+        <span id="restaurantInfo">--</span>
+        <span class="sep">·</span>
+        <span id="restaurantIndexInfo">--</span>
+      </div>
+    </div>
+
+    <div class="progress-section">
+      <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressBar" style="width:0%"></div></div>
+      <div class="progress-text">
+        <span id="progressText">0/0 已清点</span>
+        <span id="progressSub"></span>
+      </div>
+    </div>
+
+    <!-- 提示栏 -->
+    <div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:8px 12px;font-size:12px;color:#795548;margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+      <span style="font-size:14px;">💡</span>
+      <span><b>点击</b>确认商品 · <b>双击</b>标记（输入实际拣货数量）</span>
+    </div>
+
+    <ul class="item-check-list" id="itemCheckList"></ul>
+
+    <div class="check-nav">
+      <button class="btn btn-outline btn-sm" id="btnPrev" onclick="prevRestaurant()">上一个</button>
+      <button class="btn btn-secondary btn-sm" onclick="goToSummary()">查看汇总</button>
+      <button class="btn btn-outline btn-sm" id="btnNext" onclick="nextRestaurant()">下一个</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 汇总页 ==================== -->
+<div class="page" id="page-summary">
+  <div class="header">
+    <button class="back-btn" onclick="goToCheckFromSummary()">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M15 6L9 12L15 18" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <h1>送货汇总</h1>
+  </div>
+  <div class="summary-content">
+    <div id="allDoneBanner"></div>
+    <div class="route-overview-card">
+      <div class="overview-header">
+        <div class="route-title" id="summaryRouteTitle">--</div>
+        <div class="route-info" id="summaryRouteInfo">--</div>
+      </div>
+      <div class="progress-bar-bg"><div class="progress-bar-fill" id="summaryProgressBar" style="width:0%"></div></div>
+      <div class="progress-text" id="summaryProgressText">--</div>
+    </div>
+    <ul class="summary-list" id="summaryList"></ul>
+    <button class="btn btn-primary" onclick="goToCheckFromSummary()" style="margin-top:10px;margin-bottom:20px;">返回继续点货</button>
+  </div>
+</div>
+
+<!-- 缺货弹窗 -->
+<div class="modal-overlay" id="shortageModal" style="display:none;">
+  <div class="modal-sheet">
+    <div class="modal-title">📝 输入实际拣货数量</div>
+    <div class="modal-sub">请输入实际拣货数量（系统自动判断缺货/正常/多货）</div>
+    <div class="modal-info-box">
+      <div class="modal-info-line">
+        <span>商品名称</span>
+        <span id="modalItemName">--</span>
+      </div>
+      <div class="modal-info-line">
+        <span>订单数量</span>
+        <span id="modalOrderQty">--</span>
+      </div>
+      <div class="modal-info-line" id="modalDiffLine">
+        <span id="modalDiffLabel">缺少数量</span>
+        <span class="val" id="modalShortageQty">--</span>
+      </div>
+    </div>
+    <div class="modal-row">
+      <div class="modal-label">实际拣货数量</div>
+      <input type="number" class="modal-qty-input" id="modalQtyInput" min="0" placeholder="输入实际拣货数量">
+    </div>
+    <div class="modal-btns">
+      <button class="btn btn-ghost" onclick="closeShortageModal()">取消</button>
+      <button class="btn btn-primary" id="modalConfirmBtn" onclick="confirmActualQty()">确认</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==================== 数据层 ====================
+const STORAGE_KEY = 'delivery_orders';
+
+function getOrders() {
+  try {
+    const data = localStorage.getItem(STORAGE_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch (e) { return []; }
+}
+function saveOrders(orders) { localStorage.setItem(STORAGE_KEY, JSON.stringify(orders)); }
+function findOrdersByRoute(route) { return getOrders().filter(o => o.route === route); }
+function getOrderById(id) { return getOrders().find(o => o.id === id); }
+function updateOrder(order) {
+  const orders = getOrders();
+  const idx = orders.findIndex(o => o.id === order.id);
+  if (idx !== -1) orders[idx] = order; else orders.unshift(order);
+  saveOrders(orders);
+}
+
+// ==================== Excel日期转换 ====================
+// Excel日期序列号 → YYYY-MM-DD
+function excelDate(serial) {
+  if (!serial) return '';
+  const n = parseInt(serial, 10);
+  if (isNaN(n) || n < 1) return '';
+  // Excel epoch: 1900-01-00 (but Excel has a leap year bug treating 1900 as leap)
+  const d = new Date(Math.round((n - 25569) * 86400 * 1000));
+  if (isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  if (y < 1990 || y > 2100) return '';
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+day;
+}
+
+// 判断是否是Excel日期序列号（数值型，范围 40000~60000，约2020-2060年）
+function isExcelDateSerial(v) {
+  if (typeof v !== 'number') return false;
+  return v >= 40000 && v <= 60000;
+}
+
+// ==================== 应用状态 ====================
+let app = { order: null, currentIdx: 0 };
+
+// 缺货弹窗状态
+let actualQtyCtx = { itemIndex: null, maxQty: 0 };
+
+// ==================== URL参数 ====================
+function getUrlParam(name) {
+  const url = new URL(window.location.href);
+  const val = url.searchParams.get(name);
+  if (name === 'data' && val) {
+    try {
+      const decoded = decodeURIComponent(atob(val).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+      return JSON.parse(decoded);
+    } catch (e) { return null; }
+  }
+  return val;
+}
+
+// ==================== 初始化 ====================
+(function initFromUrl() {
+  const orderData = getUrlParam('data');
+  if (orderData && orderData.id) {
+    const orders = getOrders();
+    const exists = orders.findIndex(o => o.id === orderData.id);
+    if (exists === -1) orders.unshift(orderData); else orders[exists] = orderData;
+    saveOrders(orders);
+    loadOrder(orderData);
+  }
+})();
+
+// ==================== 页面切换 ====================
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  const page = document.getElementById(id);
+  if (page) page.scrollTop = 0;
+}
+
+// ==================== 搜索页 ====================
+function pasteImport() {
+  const text = document.getElementById('manualPasteInput').value.trim() || '';
+  if (text) { doImportData(text); return; }
+  navigator.clipboard.readText().then(text => doImportData(text)).catch(() => {
+    showError('无法读取剪贴板，请在下方输入框中粘贴数据');
+  });
+}
+function manualPasteImport() {
+  const text = document.getElementById('manualPasteInput').value.trim();
+  if (!text) { showError('请先在输入框中粘贴数据'); return; }
+  doImportData(text);
+}
+function showError(msg) {
+  const el = document.getElementById('searchError');
+  el.textContent = msg; el.classList.add('show');
+}
+function clearError() { document.getElementById('searchError').classList.remove('show'); }
+
+function doImportData(text) {
+  clearError();
+  if (!text || text.length < 10) { showError('数据内容无效'); return; }
+  try {
+    const decoded = decodeURIComponent(atob(text).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+    const orderData = JSON.parse(decoded);
+    if (!orderData.id || !orderData.route) throw new Error('无效数据');
+    const orders = getOrders();
+    const exists = orders.findIndex(o => o.id === orderData.id);
+    if (exists === -1) orders.unshift(orderData); else orders[exists] = orderData;
+    saveOrders(orders);
+    loadOrder(orderData);
+  } catch (e) {
+    showError('数据解析失败，请确认复制了完整内容');
+  }
+}
+
+function searchOrders() {
+  const input = document.getElementById('orderInput').value.trim();
+  clearError();
+  document.getElementById('orderListResult').innerHTML = '';
+  if (!input) { showError('请输入线路号'); return; }
+  const byId = getOrderById(input);
+  if (byId) { loadOrder(byId); return; }
+  const orders = getOrders().filter(o => o.route.toLowerCase().includes(input.toLowerCase()));
+  if (orders.length === 0) { showError('未找到匹配的送货单'); return; }
+  if (orders.length === 1) { loadOrder(orders[0]); return; }
+  let html = '<div class="recent-section"><div class="recent-title">搜索结果</div>';
+  orders.forEach(o => {
+    const date = o.shipDate || (o.createdAt ? o.createdAt.split('T')[0] : '--');
+    const rCount = o.restaurants ? o.restaurants.length : 0;
+    const itemCount = o.restaurants ? o.restaurants.reduce((s, r) => s + (r.items ? r.items.length : 0), 0) : 0;
+    html += `<div class="recent-item" onclick="loadOrderById('${esc(o.id)}')">
+      <div class="route-badge">${esc(o.route)}</div>
+      <div class="recent-info"><div class="recent-name">${rCount}家餐厅 · ${itemCount}个商品</div><div class="recent-date">${date}</div></div>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M9 6L15 12L9 18" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round"/></svg>
+    </div>`;
+  });
+  html += '</div>';
+  document.getElementById('orderListResult').innerHTML = html;
+}
+
+function loadOrderById(id) { const order = getOrderById(id); if (order) loadOrder(order); }
+
+function loadOrder(order) {
+  app.order = order;
+  if (!order.progress) order.progress = {};
+  if (!order.progress.restaurantItems) order.progress.restaurantItems = {};
+  if (order.restaurants) {
+    order.restaurants.forEach(r => {
+      if (!order.progress.restaurantItems[r.id]) order.progress.restaurantItems[r.id] = {};
+    });
+  }
+  app.currentIdx = (typeof order.progress.currentRestaurantIndex === 'number'
+    && order.progress.currentRestaurantIndex < (order.restaurants ? order.restaurants.length : 0))
+    ? order.progress.currentRestaurantIndex : 0;
+  initCheckPage();
+  showPage('page-check');
+}
+
+function goToSearch() {
+  showPage('page-search');
+  document.getElementById('orderListResult').innerHTML = '';
+  document.getElementById('orderInput').value = '';
+  renderRecentList();
+}
+
+function renderRecentList() {
+  const orders = getOrders().slice(0, 5);
+  const section = document.getElementById('recentSection');
+  if (orders.length === 0) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  let html = '';
+  orders.forEach(o => {
+    const date = o.shipDate || (o.createdAt ? o.createdAt.split('T')[0] : '--');
+    const rCount = o.restaurants ? o.restaurants.length : 0;
+    const itemCount = o.restaurants ? o.restaurants.reduce((s, r) => s + (r.items ? r.items.length : 0), 0) : 0;
+    html += `<div class="recent-item" onclick="loadOrderById('${esc(o.id)}')">
+      <div class="route-badge">${esc(o.route)}</div>
+      <div class="recent-info"><div class="recent-name">${rCount}家餐厅 · ${itemCount}个商品</div><div class="recent-date">${date}</div></div>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M9 6L15 12L9 18" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round"/></svg>
+    </div>`;
+  });
+  document.getElementById('recentList').innerHTML = html;
+}
+
+// ==================== 点货页 ====================
+function initCheckPage() {
+  const order = app.order;
+  document.getElementById('checkRouteName').textContent = '线路 ' + order.route + ' 点货';
+  renderCheckPage();
+}
+
+function getCurrentRestaurant() {
+  const order = app.order;
+  if (!order.restaurants || order.restaurants.length === 0) return null;
+  return order.restaurants[app.currentIdx];
+}
+
+function getRestaurantItems(restaurantId) {
+  const order = app.order;
+  if (!order.progress.restaurantItems) order.progress.restaurantItems = {};
+  if (!order.progress.restaurantItems[restaurantId]) order.progress.restaurantItems[restaurantId] = {};
+  return order.progress.restaurantItems[restaurantId];
+}
+
+// 双击检测：400ms内第2次点击触发
+const CLICK_DELAY = 400;
+let lastClickTime = {};
+let clickCount = {};
+
+function renderCheckPage() {
+  const order = app.order;
+  const r = getCurrentRestaurant();
+  if (!r) { document.getElementById('currentRestaurant').textContent = '无餐厅'; return; }
+
+  const total = order.restaurants.length;
+  const items = r.items || [];
+  const checkedMap = getRestaurantItems(r.id);
+
+  document.getElementById('currentRestaurant').textContent = r.name;
+  document.getElementById('restaurantInfo').textContent = '停靠 ' + (r.stop || '--') + ' · ' + (r.code || '');
+  document.getElementById('restaurantIndexInfo').textContent = '第 ' + (app.currentIdx + 1) + ' / ' + total + ' 家餐厅';
+
+  // 统计
+  let doneCount = 0, shortageCount = 0, overageCount = 0;
+  for (let i = 0; i < items.length; i++) {
+    const s = checkedMap[i];
+    if (s && s.status === 'done') doneCount++;
+    else if (s && s.status === 'shortage') shortageCount++;
+    else if (s && s.status === 'overage') overageCount++;
+  }
+
+  const pct = items.length > 0 ? ((doneCount + shortageCount + overageCount) / items.length * 100) : 0;
+  document.getElementById('progressBar').style.width = pct + '%';
+  document.getElementById('progressText').innerHTML =
+    `<span class="highlight">${doneCount + shortageCount + overageCount}/${items.length}</span> 已处理` +
+    (shortageCount > 0 ? ` <span style="color:var(--c-danger);font-weight:600;">· ${shortageCount}缺货</span>` : '') +
+    (overageCount > 0 ? ` <span style="color:#2563EB;font-weight:600;">· ${overageCount}多货</span>` : '');
+  document.getElementById('progressSub').textContent = doneCount + '已确认' + (shortageCount > 0 ? ' · ' + shortageCount + '缺货' : '') + (overageCount > 0 ? ' · ' + overageCount + '多货' : '');
+
+  // 按货品分类分组（保持送货单原有顺序）
+  const categories = {};
+  items.forEach((item, i) => {
+    const cat = item.category || '未分类';
+    if (!categories[cat]) categories[cat] = [];
+    categories[cat].push({ ...item, idx: i });
+  });
+
+  let html = '';
+  for (const [cat, catItems] of Object.entries(categories)) {
+    html += '<div class="cat-header">' + esc(cat) + ' (' + catItems.length + '项)</div>';
+    catItems.forEach(it => {
+      const state = checkedMap[it.idx] || {};
+      const status = state.status; // undefined | 'done' | 'shortage'
+      const actualQty = state.actualQty; // 缺货时记录的实际数量
+
+      let rowClass = 'item-check-row';
+      let statusClass = 'item-status';
+      let statusIcon = '';
+      let qtyDisplay = it.quantity;
+      let qtyClass = 'item-qty';
+      let extraHTML = '';
+
+      if (status === 'done') {
+        rowClass += ' is-done';
+        statusClass += ' confirmed';
+        statusIcon = '✓';
+        extraHTML = '<div class="done-tag">✓ 已确认</div>';
+      } else if (status === 'shortage') {
+        rowClass += ' is-shortage';
+        statusClass += ' shortage';
+        statusIcon = '✗';
+        const diff = it.quantity - (actualQty || 0);
+        qtyDisplay = actualQty || 0;
+        qtyClass = 'item-qty';
+        extraHTML = `<div class="shortage-note">缺${diff}件</div>`;
+      } else if (status === 'overage') {
+        rowClass += ' is-overage';
+        statusClass += ' overage';
+        statusIcon = '✗';
+        const diff = (actualQty || 0) - it.quantity;
+        qtyDisplay = actualQty || 0;
+        qtyClass = 'item-qty';
+        extraHTML = `<div class="overage-note">多${diff}件</div>`;
+      } else {
+        statusClass += ' unchecked';
+        statusIcon = '';
+      }
+
+      // 生产日期格式化
+      let prodDateStr = '';
+      if (it.productionDate !== undefined && it.productionDate !== null && it.productionDate !== '') {
+        if (isExcelDateSerial(it.productionDate)) {
+          prodDateStr = excelDate(it.productionDate);
+        } else {
+          prodDateStr = String(it.productionDate);
+        }
+      }
+
+      // 次要信息：生产日期 · 供应商（单行，简洁专业）
+      let subHTML = '';
+      const subParts = [];
+      if (prodDateStr) subParts.push(`<span class="item-date">📅 ${esc(prodDateStr)}</span>`);
+      if (it.supplierName) subParts.push(`<span class="item-supplier">${esc(it.supplierName)}</span>`);
+      if (subParts.length > 0) {
+        subHTML = subParts.join('<span class="item-dot">·</span>');
+      }
+
+      html += `<li class="${rowClass}" data-idx="${it.idx}" onclick="handleItemClick(${it.idx})">`;
+      html += `<div class="item-main">`;
+      html += `<div class="item-line-1">`;
+      html += `<span class="item-code">${esc(it.code || '')}</span>`;
+      html += `<span class="item-name">${esc(it.name || '')}</span>`;
+      html += `</div>`;
+      if (subHTML) html += `<div class="item-line-2">${subHTML}</div>`;
+      html += `</div>`;
+      html += `<div class="item-qty-wrap">`;
+      html += `<div class="${qtyClass}">${qtyDisplay}</div>`;
+      html += `<div class="item-unit">${esc(it.unit || '')}</div>`;
+      html += extraHTML;
+      html += `</div>`;
+      html += `</li>`;
+
+    });
+  }
+  document.getElementById('itemCheckList').innerHTML = html;
+
+  document.getElementById('btnPrev').style.visibility = app.currentIdx > 0 ? 'visible' : 'hidden';
+  document.getElementById('btnNext').style.visibility = app.currentIdx < total - 1 ? 'visible' : 'hidden';
+}
+
+function handleItemClick(itemIndex) {
+  const now = Date.now();
+  const last = lastClickTime[itemIndex] || 0;
+
+  if (now - last < CLICK_DELAY) {
+    // 双击：弹出缺货输入
+    clickCount[itemIndex] = (clickCount[itemIndex] || 0) + 1;
+    lastClickTime[itemIndex] = 0;
+    if (clickCount[itemIndex] >= 2) {
+      clickCount[itemIndex] = 0;
+      openActualQtyModal(itemIndex);
+      return;
+    }
+  } else {
+    clickCount[itemIndex] = 1;
+  }
+
+  lastClickTime[itemIndex] = now;
+
+  // 单击延时后处理（区分单击/双击）
+  setTimeout(() => {
+    if (Date.now() - lastClickTime[itemIndex] < CLICK_DELAY) return; // 忽略，在双击处理
+    // 单击：切换确认状态
+    lastClickTime[itemIndex] = 0;
+    clickCount[itemIndex] = 0;
+    doToggleConfirm(itemIndex);
+  }, CLICK_DELAY + 50);
+}
+
+function doToggleConfirm(itemIndex) {
+  const r = getCurrentRestaurant();
+  if (!r) return;
+  const checkedMap = getRestaurantItems(r.id);
+  const current = checkedMap[itemIndex];
+
+  if (current && current.status === 'done') {
+    // 已确认 → 取消
+    delete checkedMap[itemIndex];
+  } else if (current && current.status === 'shortage') {
+    // 缺货 → 已确认
+    checkedMap[itemIndex] = { status: 'done', timestamp: Date.now() };
+  } else {
+    // 未处理 → 已确认
+    checkedMap[itemIndex] = { status: 'done', timestamp: Date.now() };
+  }
+
+  saveProgress();
+  renderCheckPage();
+}
+
+function openActualQtyModal(itemIndex) {
+  const r = getCurrentRestaurant();
+  if (!r) return;
+  const items = r.items;
+  const it = items[itemIndex];
+  const checkedMap = getRestaurantItems(r.id);
+  const current = checkedMap[itemIndex];
+
+  actualQtyCtx.itemIndex = itemIndex;
+  actualQtyCtx.orderQty = it.quantity;
+
+  // 根据已有状态动态显示差异标签
+  const diffLabel = document.getElementById('modalDiffLabel');
+  const diffValue = document.getElementById('modalShortageQty');
+  const currentActual = (current && current.actualQty !== undefined) ? current.actualQty : null;
+
+  if (currentActual !== null) {
+    const diff = currentActual - it.quantity;
+    if (diff > 0) {
+      diffLabel.textContent = '多出数量';
+      diffValue.textContent = '+' + diff;
+      diffValue.style.color = '#2563EB';
+    } else if (diff < 0) {
+      diffLabel.textContent = '缺少数量';
+      diffValue.textContent = Math.abs(diff) + ' 件';
+      diffValue.style.color = 'var(--c-danger)';
+    } else {
+      diffLabel.textContent = '实际拣货';
+      diffValue.textContent = currentActual + (it.unit || '');
+      diffValue.style.color = 'var(--c-success)';
+    }
+  } else {
+    diffLabel.textContent = '需要拣货';
+    diffValue.textContent = it.quantity + (it.unit || '');
+    diffValue.style.color = 'var(--c-text)';
+  }
+
+  document.getElementById('modalItemName').textContent = it.name || '--';
+  document.getElementById('modalOrderQty').textContent = it.quantity + ' ' + (it.unit || '');
+  document.getElementById('modalQtyInput').value = currentActual !== null ? currentActual : '';
+  document.getElementById('shortageModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('modalQtyInput').focus(), 100);
+}
+
+function closeShortageModal() {
+  document.getElementById('shortageModal').style.display = 'none';
+  actualQtyCtx.itemIndex = null;
+}
+
+function confirmActualQty() {
+  const qty = parseInt(document.getElementById('modalQtyInput').value, 10);
+  if (isNaN(qty) || qty < 0) {
+    document.getElementById('modalQtyInput').style.borderColor = 'var(--c-danger)';
+    return;
+  }
+  const r = getCurrentRestaurant();
+  if (!r) return;
+  const items = r.items;
+  const it = items[actualQtyCtx.itemIndex];
+  const checkedMap = getRestaurantItems(r.id);
+  
+  // 自动判断状态
+  let status = 'done';
+  if (qty < it.quantity) status = 'shortage';
+  else if (qty > it.quantity) status = 'overage';
+  
+  checkedMap[actualQtyCtx.itemIndex] = { status: status, actualQty: qty, timestamp: Date.now() };
+  closeShortageModal();
+  saveProgress();
+  renderCheckPage();
+}
+
+// 键盘支持：弹窗中按Enter确认
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('modalQtyInput');
+  if (input) {
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') confirmActualQty(); });
+  }
+  // ESC关闭弹窗
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeShortageModal(); });
+});
+
+function saveProgress() {
+  app.order.progress.currentRestaurantIndex = app.currentIdx;
+  updateOrder(app.order);
+}
+
+function prevRestaurant() {
+  if (app.currentIdx > 0) {
+    app.currentIdx--;
+    saveProgress();
+    renderCheckPage();
+  }
+}
+function nextRestaurant() {
+  const total = app.order.restaurants ? app.order.restaurants.length : 0;
+  if (app.currentIdx < total - 1) {
+    app.currentIdx++;
+    saveProgress();
+    renderCheckPage();
+  }
+}
+
+// ==================== 汇总页 ====================
+function goToSummary() { renderSummary(); showPage('page-summary'); }
+function goToCheckFromSummary() { initCheckPage(); showPage('page-check'); }
+
+function renderSummary() {
+  const order = app.order;
+  const restaurants = order.restaurants || [];
+  const date = order.shipDate || (order.createdAt ? order.createdAt.split('T')[0] : '--');
+
+  document.getElementById('summaryRouteTitle').textContent = '线路 ' + order.route;
+  document.getElementById('summaryRouteInfo').textContent = date + ' · ' + restaurants.length + '家餐厅';
+
+  let totalItems = 0, totalDone = 0, totalShortage = 0, totalOverage = 0, allDone = true;
+  let html = '';
+
+  restaurants.forEach((r, idx) => {
+    const items = r.items || [];
+    const checkedMap = getRestaurantItems(r.id);
+    let done = 0, shortage = 0, overage = 0;
+    for (let i = 0; i < items.length; i++) {
+      const s = checkedMap[i];
+      if (s && s.status === 'done') done++;
+      else if (s && s.status === 'shortage') shortage++;
+      else if (s && s.status === 'overage') overage++;
+    }
+    totalItems += items.length;
+    totalDone += done;
+    totalShortage += shortage;
+    totalOverage += overage;
+    if (done + shortage + overage < items.length) allDone = false;
+
+    const isComplete = done === items.length && items.length > 0 && shortage === 0;
+    const hasShortage = shortage > 0;
+    const isActive = idx === app.currentIdx;
+
+    let rowClass = 'summary-row';
+    let statusLabel = '';
+    if (isComplete) { rowClass += ' complete'; statusLabel = '✓'; }
+    else if (hasShortage) { rowClass += ' shortage'; statusLabel = '⚠'; allDone = false; }
+    else if (isActive) { rowClass += ' active'; statusLabel = r.stop || String(idx+1).padStart(2,'0'); }
+    else { rowClass += ' pending'; statusLabel = r.stop || String(idx+1).padStart(2,'0'); }
+
+    let countHTML = `${done + shortage + overage}/${items.length} 已处理`;
+    if (hasShortage) countHTML += ` <span style="color:var(--c-danger)">(${shortage}缺货)</span>`;
+    if (overage > 0) countHTML += ` <span style="color:#2563EB">(${overage}多货)</span>`;
+
+    html += `<li class="${rowClass}" onclick="jumpToRestaurant(${idx})">`;
+    html += `<div class="status-circle">${statusLabel}</div>`;
+    html += `<div class="summary-info"><div class="summary-name">${esc(r.name)}</div><div class="summary-count">${countHTML}</div></div>`;
+    html += `<div class="summary-stop">停靠 ${r.stop || '--'}</div>`;
+    html += `</li>`;
+  });
+
+  document.getElementById('summaryList').innerHTML = html;
+
+  const pct = totalItems > 0 ? ((totalDone + totalShortage + totalOverage) / totalItems * 100) : 0;
+  document.getElementById('summaryProgressBar').style.width = pct + '%';
+
+  const doneCount = restaurants.filter(r => {
+    const items = r.items || [];
+    const checkedMap = getRestaurantItems(r.id);
+    let d = 0, s = 0;
+    for (let i = 0; i < items.length; i++) {
+      const st = checkedMap[i];
+      if (st && st.status === 'done') d++;
+      else if (st && st.status === 'shortage') s++;
+    }
+    return d + s === items.length && items.length > 0;
+  }).length;
+
+  if (allDone && restaurants.length > 0) {
+    document.getElementById('summaryProgressText').innerHTML = `<span style="color:var(--c-success);font-weight:600;">全部 ${restaurants.length} 家餐厅已完成</span>`;
+    document.getElementById('allDoneBanner').innerHTML = `<div class="all-done-banner">
+      <div class="banner-check"><svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="15" fill="#FFFFFF"/><path d="M9 16L14 21L23 11" stroke="#34A853" stroke-width="2.5" stroke-linecap="round"/></svg></div>
+      <div class="banner-title">全部完成</div><div class="banner-sub">所有餐厅商品已清点完毕</div></div>`;
+  } else {
+    document.getElementById('summaryProgressText').textContent = doneCount + '/' + restaurants.length + ' 餐厅已完成' + (totalShortage > 0 ? ' · ' + totalShortage + '家含缺货' : '') + (totalOverage > 0 ? ' · ' + totalOverage + '家含多货' : '');
+    document.getElementById('allDoneBanner').innerHTML = '';
+  }
+}
+
+function jumpToRestaurant(idx) {
+  app.currentIdx = idx;
+  saveProgress();
+  initCheckPage();
+  showPage('page-check');
+}
+
+// ==================== 工具 ====================
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  const div = document.createElement('div');
+  div.textContent = String(s);
+  return div.innerHTML;
+}
+
+// ==================== 初始化 ====================
+(function init() {
+  renderRecentList();
+  const orderId = getUrlParam('order') || getUrlParam('qr_code');
+  if (orderId) {
+    const order = getOrderById(orderId);
+    if (order) { loadOrder(order); return; }
+  }
+  showPage('page-search');
+})();
+
+</script>
+
+</body>
+</html>

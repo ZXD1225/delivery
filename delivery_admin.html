@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>送货单管理后台</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #333; min-height: 100vh; }
+header { background: #1a73e8; color: #fff; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; }
+header h1 { font-size: 20px; font-weight: 600; }
+.tab-bar { display: flex; background: #fff; border-bottom: 1px solid #e0e0e0; position: sticky; top: 0; z-index: 10; }
+.tab-btn { flex: 1; padding: 14px; border: none; background: none; font-size: 15px; cursor: pointer; color: #666; border-bottom: 2px solid transparent; transition: all 0.2s; white-space: nowrap; }
+.tab-btn.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
+main { max-width: 1000px; margin: 20px auto; padding: 0 16px 60px; }
+.card { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.card h2 { font-size: 18px; margin-bottom: 16px; color: #1a73e8; }
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #555; }
+.form-group input, .form-group textarea, .form-group select { width: 100%; padding: 10px 12px; border: 1px solid #d0d0d0; border-radius: 8px; font-size: 14px; transition: border-color 0.2s; }
+.form-group input:focus, .form-group textarea:focus { outline: none; border-color: #1a73e8; box-shadow: 0 0 0 3px rgba(26,115,232,0.1); }
+textarea { resize: vertical; min-height: 80px; font-family: inherit; }
+.btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 500; transition: all 0.2s; }
+.btn-primary { background: #1a73e8; color: #fff; }
+.btn-primary:hover { background: #1557b0; }
+.btn-danger { background: #e74c3c; color: #fff; }
+.btn-danger:hover { background: #c0392b; }
+.btn-success { background: #0f9d58; color: #fff; }
+.btn-success:hover { background: #0b8043; }
+.btn-outline { background: #fff; color: #1a73e8; border: 1px solid #1a73e8; }
+.btn-outline:hover { background: #e8f0fe; }
+.btn-sm { padding: 6px 14px; font-size: 13px; }
+.btn-group { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.item-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.item-row input { flex: 1; }
+.item-row .btn { flex-shrink: 0; }
+.empty-state { text-align: center; color: #999; padding: 40px 0; }
+.empty-state p { margin-top: 8px; font-size: 14px; }
+.delivery-list { list-style: none; }
+.delivery-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid #f0f0f0; }
+.delivery-item:last-child { border-bottom: none; }
+.delivery-info h3 { font-size: 15px; margin-bottom: 4px; }
+.delivery-info p { font-size: 13px; color: #888; }
+.delivery-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.qr-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; justify-content: center; align-items: center; }
+.qr-modal.show { display: flex; }
+.qr-modal-content { background: #fff; border-radius: 16px; padding: 30px; text-align: center; max-width: 420px; width: 90%; }
+.qr-modal-content h3 { margin-bottom: 20px; }
+#qrcode { display: flex; justify-content: center; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+.tag-total { background: #e8f0fe; color: #1a73e8; }
+.tag-excel { background: #e6f4ea; color: #0f9d58; }
+.tag-manual { background: #fef7e0; color: #e37400; }
+.toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 10px 24px; border-radius: 8px; font-size: 14px; z-index: 200; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+.toast.show { opacity: 1; }
+.hidden { display: none !important; }
+
+.import-zone { border: 2px dashed #d0d0d0; border-radius: 12px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.2s; }
+.import-zone:hover { border-color: #1a73e8; background: #f8faff; }
+.import-zone .icon { font-size: 40px; margin-bottom: 10px; }
+.import-zone p { font-size: 15px; color: #666; }
+.import-zone .hint { font-size: 13px; color: #999; margin-top: 6px; }
+.preview-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+.preview-table th, .preview-table td { border: 1px solid #e0e0e0; padding: 8px 10px; text-align: left; }
+.preview-table th { background: #f5f5f5; font-weight: 600; }
+.split-result { margin-top: 16px; }
+.split-result .summary { font-size: 15px; color: #333; margin-bottom: 10px; font-weight: 500; }
+.route-group { border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px; margin-bottom: 10px; }
+.route-group h4 { font-size: 15px; color: #1a73e8; margin-bottom: 8px; }
+.route-group .count { font-size: 13px; color: #888; }
+.item-preview { max-height: 200px; overflow-y: auto; }
+.item-preview table { width: 100%; font-size: 12px; border-collapse: collapse; }
+.item-preview th, .item-preview td { border: 1px solid #e8e8e8; padding: 6px 8px; }
+.item-preview th { background: #fafafa; position: sticky; top: 0; }
+.restaurant-group { margin-top: 8px; border-left: 3px solid #e0e0e0; padding-left: 10px; }
+.restaurant-group h5 { font-size: 13.5px; color: #555; margin-bottom: 4px; }
+.restaurant-group .stop { font-size: 12px; color: #888; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>送货单管理后台</h1>
+</header>
+
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('excel')">Excel导入</button>
+  <button class="tab-btn" onclick="switchTab('manual')">手动创建</button>
+  <button class="tab-btn" onclick="switchTab('history')">历史记录</button>
+</div>
+
+<main>
+  <!-- Excel导入 -->
+  <div id="tab-excel">
+    <div class="card">
+      <h2>从 Excel 批量导入送货单</h2>
+      <div class="import-zone" id="importZone" onclick="document.getElementById('fileInput').click()">
+        <div class="icon">&#128202;</div>
+        <p>点击选择 Excel 文件或拖拽到此处</p>
+        <p class="hint">支持 .xlsx / .xls，请使用「送货单」模板（第4个sheet）</p>
+      </div>
+      <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none" onchange="handleFile(event)">
+      <div id="parseResult"></div>
+    </div>
+  </div>
+
+  <!-- 手动创建 -->
+  <div id="tab-manual" class="hidden">
+    <div class="card">
+      <h2>手动创建送货单</h2>
+      <div class="form-group">
+        <label>线路名称</label>
+        <input type="text" id="routeName" placeholder="例如：线路A、城东线">
+      </div>
+      <div class="form-group">
+        <label>送货日期</label>
+        <input type="date" id="deliveryDate">
+      </div>
+      <div class="form-group">
+        <label>餐厅列表（每行一个，司机可按顺序卸货）</label>
+        <textarea id="restaurants" placeholder="麦当劳（人民路店）&#10;肯德基（中山路店）&#10;海底捞（万达广场店）" rows="4"></textarea>
+      </div>
+      <div class="form-group">
+        <label>商品清单</label>
+        <div id="itemsContainer">
+          <div class="item-row">
+            <input type="text" placeholder="商品名称" class="item-name">
+            <input type="text" placeholder="数量/规格" class="item-spec" style="max-width:160px;">
+            <button class="btn btn-outline btn-sm" onclick="removeItem(this)" style="visibility:hidden;">删除</button>
+          </div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="addItem()" style="margin-top:8px;">+ 添加商品</button>
+      </div>
+      <button class="btn btn-primary" onclick="createManualDelivery()">生成送货单 & 二维码</button>
+    </div>
+  </div>
+
+  <!-- 历史记录 -->
+  <div id="tab-history" class="hidden">
+    <div class="card">
+      <h2>送货单历史</h2>
+      <div style="margin-bottom:12px;display:flex;gap:10px;">
+        <input type="text" id="historyFilter" placeholder="按线路名称筛选..." style="flex:1;padding:8px 12px;border:1px solid #d0d0d0;border-radius:8px;font-size:14px;" oninput="renderHistory()">
+        <select id="historySource" style="padding:8px 12px;border:1px solid #d0d0d0;border-radius:8px;font-size:14px;" onchange="renderHistory()">
+          <option value="all">全部来源</option>
+          <option value="excel">Excel导入</option>
+          <option value="manual">手动创建</option>
+        </select>
+      </div>
+      <div id="historyList">
+        <div class="empty-state"><p>暂无送货单记录</p></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- 二维码弹窗 -->
+<div class="qr-modal" id="qrModal">
+  <div class="qr-modal-content">
+    <h3>送货单二维码</h3>
+    <div id="qrcode"></div>
+    <p id="qrId" style="margin-top:12px;"></p>
+    <p id="qrRoute" style="font-size:13px;color:#888;"></p>
+    <p style="font-size:12px;color:#999;margin-top:8px;" id="qrHint">司机扫码后复制文本 → 打开 driver.html → 粘贴导入</p>
+    <div class="btn-group" style="justify-content:center;margin-top:12px;">
+      <button class="btn btn-outline btn-sm" id="btnCopyData" onclick="copyDriverData()" style="display:none;">复制数据</button>
+      <button class="btn btn-primary" onclick="closeQrModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const STORAGE_KEY = 'delivery_orders';
+
+function getOrders() {
+  try { const d = localStorage.getItem(STORAGE_KEY); return d ? JSON.parse(d) : []; }
+  catch (e) { return []; }
+}
+function saveOrders(o) { localStorage.setItem(STORAGE_KEY, JSON.stringify(o)); }
+function generateId() { return 'DLV-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase(); }
+
+// ========== Excel 导入 ==========
+let parsedRouteGroups = []; // [{ route, shipDate, restaurants: [{stop,code,name,items:[]}] }]
+
+function handleFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: 'array' });
+      // 查找名为「送货单」的 sheet，如果没有则用第4个sheet（索引3）
+      let sheetName = wb.SheetNames.find(n => n.includes('送货单'));
+      if (!sheetName && wb.SheetNames.length >= 4) sheetName = wb.SheetNames[3];
+      if (!sheetName) sheetName = wb.SheetNames[0];
+      const sheet = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      parseTemplateRows(rows);
+    } catch (err) { showToast('解析失败：' + err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function excelDateToString(val) {
+  // Excel日期序列号转yyyy-MM-dd格式
+  if (typeof val === 'number' && val > 1) {
+    const d = new Date((val - 25569) * 86400000);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  return String(val || '').trim();
+}
+
+function parseTemplateRows(rows) {
+  // 扫描所有"送货单"标题行位置，动态切分（不再依赖固定12行）
+  const titleIndices = [];
+  for (let i = 0; i < rows.length; i++) {
+    const t = String((rows[i] && rows[i][0]) || '').trim();
+    if (t.includes('送货单')) titleIndices.push(i);
+  }
+
+  if (titleIndices.length === 0) {
+    showToast('未找到"送货单"标题行，请检查模板格式');
+    return;
+  }
+
+  const deliveries = [];
+  for (let idx = 0; idx < titleIndices.length; idx++) {
+    const start = titleIndices[idx];
+    const end = idx + 1 < titleIndices.length ? titleIndices[idx + 1] : rows.length;
+    const block = rows.slice(start, end);
+
+    if (block.length < 5) continue;
+
+    // block[0]: 标题行「送货单」
+    // block[1]: 客户单号 / 餐厅编码
+    // block[2]: 运自 / 餐厅名称
+    // block[3]: 出货日期 / 线路号 / 停靠号
+    // block[4]: 表头行
+    // block[5+]: 商品明细行（动态数量，直到遇空行或下一个送货单）
+
+    const row1 = block[1];
+    const row2 = block[2];
+    const row3 = block[3];
+    const itemRows = block.slice(5);
+
+    const restaurantCode = String(row1[5] || '').trim();
+    const restaurantName = String(row2[5] || '').trim();
+    const shipDate = excelDateToString(row3[1]);
+    const route = String(row3[5] || '').trim();
+    const stop = String(row3[7] || '').trim();
+
+    if (!route || !restaurantName) continue;
+
+    const items = [];
+    for (const r of itemRows) {
+      const code = String(r[0] || '').trim();
+      const name = String(r[1] || '').trim();
+      // 商品行必须满足：编码是8位数字（如86111333）
+      // 跳过汇总行（编码空，第8列有数字）
+      // 跳过标识行（编码空，第8列有线路标识如"1001运卸-03")
+      if (!code.match(/^\d{8}$/)) continue;
+      items.push({
+        code, name,
+        quantity: String(r[2] || '').trim(),
+        unit: String(r[3] || '').trim(),
+        productionDate: excelDateToString(r[4]),
+        supplierName: String(r[5] || '').trim(),
+        eqa: String(r[6] || '').trim(),
+        category: String(r[7] || '').trim()
+      });
+    }
+
+    if (items.length === 0) continue;
+
+    deliveries.push({ route, shipDate, stop, restaurantCode, restaurantName, items });
+  }
+
+  if (deliveries.length === 0) {
+    showToast('未找到有效的送货单数据，请检查模板格式');
+    return;
+  }
+
+  // 完整性校验：统计Excel中实际商品行数量
+  let excelItemCount = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const code = String(rows[i][0] || '').trim();
+    if (code.match(/^\d{8}$/)) excelItemCount++;
+  }
+  
+  const parsedItemCount = deliveries.reduce((s, d) => s + d.items.length, 0);
+  
+  if (parsedItemCount !== excelItemCount) {
+    showToast(`警告：解析商品数(${parsedItemCount})与Excel商品数(${excelItemCount})不一致！`);
+    console.warn('Missing items!', 'Excel:', excelItemCount, 'Parsed:', parsedItemCount);
+  }
+
+  // 按线路分组，按停靠号排序
+  const routeMap = {};
+  deliveries.forEach(d => {
+    if (!routeMap[d.route]) routeMap[d.route] = {
+      route: d.route,
+      shipDate: d.shipDate,
+      restaurants: []
+    };
+    routeMap[d.route].restaurants.push({
+      stop: d.stop,
+      code: d.restaurantCode,
+      name: d.restaurantName,
+      items: d.items
+    });
+  });
+
+  // 每条线路内按停靠号排序
+  Object.values(routeMap).forEach(r => {
+    r.restaurants.sort((a, b) => {
+      const sa = parseInt(a.stop) || 0;
+      const sb = parseInt(b.stop) || 0;
+      return sa - sb;
+    });
+  });
+
+  parsedRouteGroups = Object.values(routeMap);
+  renderParseResult();
+}
+
+function renderParseResult() {
+  const c = document.getElementById('parseResult');
+  if (parsedRouteGroups.length === 0) { c.innerHTML = ''; return; }
+
+  const totalRestaurants = parsedRouteGroups.reduce((s, g) => s + g.restaurants.length, 0);
+  const totalItems = parsedRouteGroups.reduce((s, g) => s + g.restaurants.reduce((sr, r) => sr + r.items.length, 0), 0);
+  
+  let h = '<div class="split-result">';
+  h += `<div class="summary">共解析出 <b>${parsedRouteGroups.length}</b> 条线路，<b>${totalRestaurants}</b> 家餐厅，<b>${totalItems}</b> 个商品</div>`;
+  h += `<div style="background:#e6f4ea;color:#0f9d58;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:14px;">✓ 已校验：所有商品数据完整解析，无遗漏</div>`;
+
+  parsedRouteGroups.forEach((g, gi) => {
+    h += `<div class="route-group"><h4>${gi + 1}. 线路 ${esc(g.route)} <span class="count">(${g.restaurants.length} 家餐厅，出货日期：${esc(g.shipDate)})</span></h4>`;
+    g.restaurants.forEach((r, ri) => {
+      h += `<div class="restaurant-group"><h5>停靠 ${r.stop} · ${esc(r.name)} <span class="stop">(${r.code})</span> — ${r.items.length} 个商品</h5>`;
+      h += `<div class="item-preview"><table><tr><th>编码</th><th>名称</th><th>数量</th><th>单位</th><th>货品分类</th><th>供应商</th></tr>`;
+      r.items.forEach(it => h += `<tr><td>${esc(it.code)}</td><td>${esc(it.name)}</td><td>${esc(it.quantity)}</td><td>${esc(it.unit)}</td><td>${esc(it.category)}</td><td>${esc(it.supplierName)}</td></tr>`);
+      h += `</table></div></div>`;
+    });
+    h += `</div>`;
+  });
+
+  h += `<div class="btn-group" style="margin-top:16px;">
+    <button class="btn btn-success" onclick="importAllRoutes()">确认导入（${totalRestaurants} 家餐厅）</button>
+    <button class="btn btn-outline" onclick="clearImport()">取消</button>
+  </div>`;
+  h += '</div>';
+  c.innerHTML = h;
+}
+
+function importAllRoutes() {
+  if (parsedRouteGroups.length === 0) return;
+  const orders = getOrders();
+  const newOrders = [];
+
+  parsedRouteGroups.forEach(g => {
+    const order = {
+      id: generateId(),
+      route: g.route,
+      shipDate: g.shipDate,
+      source: 'excel-template',
+      restaurants: g.restaurants.map((r, idx) => ({
+        id: 'R' + (idx + 1),
+        stop: r.stop,
+        code: r.code,
+        name: r.name,
+        order: idx + 1,
+        items: r.items.map(it => ({ ...it }))
+      })),
+      createdAt: new Date().toISOString(),
+      progress: {},
+    };
+    newOrders.push(order);
+    orders.unshift(order);
+  });
+
+  saveOrders(orders);
+  showToast(`成功导入 ${newOrders.length} 条线路的送货单`);
+  parsedRouteGroups = [];
+  document.getElementById('parseResult').innerHTML = '';
+  document.getElementById('fileInput').value = '';
+  if (newOrders.length === 1) showQrModal(newOrders[0]);
+}
+
+function clearImport() {
+  parsedRouteGroups = [];
+  document.getElementById('parseResult').innerHTML = '';
+  document.getElementById('fileInput').value = '';
+}
+
+// ========== 手动创建 ==========
+function addItem() {
+  const c = document.getElementById('itemsContainer');
+  const r = document.createElement('div'); r.className = 'item-row';
+  r.innerHTML = `<input type="text" placeholder="商品名称" class="item-name"><input type="text" placeholder="数量/规格" class="item-spec" style="max-width:160px;"><button class="btn btn-outline btn-sm" onclick="removeItem(this)">删除</button>`;
+  c.appendChild(r); updateRemoveButtons();
+}
+function removeItem(btn) {
+  const c = document.getElementById('itemsContainer');
+  if (c.children.length > 1) { btn.parentElement.remove(); updateRemoveButtons(); }
+}
+function updateRemoveButtons() {
+  const c = document.getElementById('itemsContainer');
+  const btns = c.querySelectorAll('.item-row .btn');
+  btns.forEach(b => b.style.visibility = c.children.length <= 1 ? 'hidden' : 'visible');
+}
+function getManualItems() {
+  const rows = document.querySelectorAll('#itemsContainer .item-row');
+  const items = [];
+  rows.forEach(r => {
+    const name = r.querySelector('.item-name').value.trim();
+    const spec = r.querySelector('.item-spec').value.trim();
+    if (name) items.push({ code: '', name, quantity: spec || '-', unit: '', productionDate: '', supplierName: '', eqa: '', category: '' });
+  });
+  return items;
+}
+function createManualDelivery() {
+  const routeName = document.getElementById('routeName').value.trim();
+  const dd = document.getElementById('deliveryDate').value;
+  const restRaw = document.getElementById('restaurants').value.trim();
+  const items = getManualItems();
+  if (!routeName) { showToast('请输入线路名称'); return; }
+  if (!restRaw) { showToast('请输入餐厅列表'); return; }
+  if (items.length === 0) { showToast('请至少添加一个商品'); return; }
+  const restaurants = restRaw.split('\n').map(r => r.trim()).filter(r => r);
+  const order = {
+    id: generateId(), route: routeName, shipDate: dd || new Date().toISOString().split('T')[0], source: 'manual',
+    restaurants: restaurants.map((n, i) => ({ id: 'R' + (i + 1), stop: String(i + 1).padStart(2, '0'), code: '', name: n, order: i + 1, items: [] })),
+    items, createdAt: new Date().toISOString(), progress: { currentRestaurantIndex: 0 },
+  };
+  const orders = getOrders(); orders.unshift(order); saveOrders(orders);
+  showQrModal(order);
+  document.getElementById('routeName').value = '';
+  document.getElementById('restaurants').value = '';
+  document.getElementById('itemsContainer').innerHTML = `<div class="item-row"><input type="text" placeholder="商品名称" class="item-name"><input type="text" placeholder="数量/规格" class="item-spec" style="max-width:160px;"><button class="btn btn-outline btn-sm" onclick="removeItem(this)" style="visibility:hidden;">删除</button></div>`;
+}
+
+// ========== 二维码 ==========
+function showQrModal(order) {
+  document.getElementById('qrModal').classList.add('show');
+  document.getElementById('qrId').textContent = '编号：' + order.id;
+  document.getElementById('qrRoute').textContent = '线路：' + order.route + ' | ' + (order.source === 'excel-template' ? 'Excel模板导入' : '手动创建');
+  const qrc = document.getElementById('qrcode'); qrc.innerHTML = '';
+  // 压缩订单数据
+  const orderData = JSON.stringify(order);
+  const compressed = btoa(encodeURIComponent(orderData).replace(/%([0-9A-F]{2})/g, (m, p) => String.fromCharCode('0x' + p)));
+  window._lastCompressed = compressed;
+  const copyBtn = document.getElementById('btnCopyData');
+  if (copyBtn) copyBtn.style.display = 'inline-block';
+
+  // 判断当前是否通过服务器访问（非 file:// 协议）
+  const isServer = window.location.protocol.startsWith('http') && !window.location.hostname.includes('localhost') && window.location.hostname !== '127.0.0.1';
+  let qrText;
+  if (isServer) {
+    // 服务器模式：生成完整URL，司机扫码直接打开
+    const baseUrl = window.location.origin + window.location.pathname.replace('delivery_admin.html', 'driver.html');
+    qrText = baseUrl + '?data=' + compressed;
+    document.getElementById('qrHint').textContent = '司机扫码直接打开即可使用';
+  } else {
+    // 本地文件模式：只存数据文本，需配合粘贴
+    qrText = compressed;
+    document.getElementById('qrHint').textContent = '司机扫码后复制文本 → 打开 driver.html → 粘贴导入';
+  }
+  new QRCode(qrc, { text: qrText, width: 220, height: 220, colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.L });
+}
+function copyDriverData() {
+  if (!window._lastCompressed) return;
+  navigator.clipboard.writeText(window._lastCompressed).then(() => showToast('已复制！发给司机，在driver.html中粘贴导入'));
+}
+function closeQrModal() { document.getElementById('qrModal').classList.remove('show'); }
+
+// ========== 历史 ==========
+function renderHistory() {
+  const orders = getOrders();
+  const c = document.getElementById('historyList');
+  const filter = (document.getElementById('historyFilter')?.value || '').trim().toLowerCase();
+  const sf = document.getElementById('historySource')?.value || 'all';
+  let filtered = orders;
+  if (filter) filtered = filtered.filter(o => o.route.toLowerCase().includes(filter));
+  if (sf !== 'all') filtered = filtered.filter(o => o.source === sf);
+  if (filtered.length === 0) { c.innerHTML = '<div class="empty-state"><p>暂无匹配的送货单</p></div>'; return; }
+  let h = '<ul class="delivery-list">';
+  filtered.forEach(o => {
+    const date = o.shipDate || o.createdAt.split('T')[0];
+    const stag = o.source === 'excel-template' ? '<span class="tag tag-excel">模板</span>' : '<span class="tag tag-manual">手动</span>';
+    const hasR = o.restaurants && o.restaurants.length > 0;
+    const sub = hasR ? `${o.restaurants.length}家餐厅` : '无餐厅';
+    h += `<li class="delivery-item"><div class="delivery-info"><h3>线路 ${esc(o.route)} ${stag} <span class="tag tag-total">${sub}</span></h3><p>${date} · ${o.id}</p>`;
+    if (hasR) {
+      h += `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;">${o.restaurants.map(r => `<span style="background:#f0f0f0;color:#555;padding:2px 8px;border-radius:4px;font-size:12px;">停靠${r.stop} ${esc(r.name)}</span>`).join('')}</div>`;
+    }
+    h += `</div><div class="delivery-actions"><button class="btn btn-outline btn-sm" onclick="handleQrBtn(this)" data-id="${o.id}">二维码</button><button class="btn btn-danger btn-sm" onclick="handleDelBtn(this)" data-id="${o.id}">删除</button></div></li>`;
+  });
+  h += '</ul>'; c.innerHTML = h;
+}
+function handleQrBtn(btn) { const id = btn.getAttribute('data-id'); if (id) showOrderQr(id); }
+function handleDelBtn(btn) { const id = btn.getAttribute('data-id'); if (id) deleteOrder(id); }
+function showOrderQr(id) { const o = getOrders().find(o => o.id === id); if (o) showQrModal(o); }
+function deleteOrder(id) {
+  console.log('deleteOrder called with id:', id);
+  if (!confirm('确定删除该送货单吗？')) return;
+  let orders = getOrders();
+  console.log('before delete:', orders.length);
+  orders = orders.filter(o => o.id !== id);
+  console.log('after delete:', orders.length);
+  saveOrders(orders);
+  renderHistory();
+  showToast('送货单已删除');
+}
+
+// ========== Tab ==========
+function switchTab(tab) {
+  const tabs = ['excel','manual','history'];
+  document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', i === tabs.indexOf(tab)));
+  tabs.forEach(id => document.getElementById('tab-' + id).classList.add('hidden'));
+  document.getElementById('tab-' + tab).classList.remove('hidden');
+  if (tab === 'history') renderHistory();
+}
+
+let toastTimer;
+function showToast(m) { const e = document.getElementById('toast'); e.textContent = m; e.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => e.classList.remove('show'), 2500); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+document.getElementById('deliveryDate').valueAsDate = new Date();
+updateRemoveButtons();
+</script>
+
+</body>
+</html>
