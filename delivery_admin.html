@@ -476,11 +476,17 @@ function confirmImport() {
       progress: {},
     };
     newOrders.push(order);
-    orders.unshift(order);
   });
 
-  saveOrders(orders);
-  showToast('成功导入 ' + newOrders.length + ' 条线路，共 ' + newOrders.reduce((s,o)=>s+(o.restaurants?o.restaurants.length:0),0) + ' 家餐厅');
+  // 按 路线+出货日期 去重：导入同一天同一线路的新数据时，自动覆盖旧记录
+  // （避免"两周后搜 1001 出来两条"的问题）
+  const newKeys = new Set(newOrders.map(o => o.route + '|' + o.shipDate));
+  const filtered = orders.filter(o => !newKeys.has(o.route + '|' + o.shipDate));
+  // 新记录插到最前面
+  filtered.unshift(...newOrders);
+
+  saveOrders(filtered);
+  showToast('成功导入 ' + newOrders.length + ' 条线路，共 ' + newOrders.reduce((s,o)=>s+(o.restaurants?o.restaurants.length:0),0) + ' 家餐厅（已自动覆盖同线路同日期的旧记录）');
   parsedRouteGroups = [];
   document.getElementById('parseResult').innerHTML = '';
   document.getElementById('fileInput').value = '';
@@ -488,6 +494,15 @@ function confirmImport() {
   window._qrIndex = 0;
   showQrModal(newOrders[0]);
   updateQrNavButtons();
+}
+
+// 批量清空所有历史记录
+function clearAllOrders() {
+  if (!confirm('确定清空全部 ' + getOrders().length + ' 条送货单记录吗？此操作不可恢复！')) return;
+  if (!confirm('再次确认：真的要全部清空吗？')) return;
+  saveOrders([]);
+  renderHistory();
+  showToast('已清空全部历史记录');
 }
 
 function clearImport() {
@@ -720,6 +735,16 @@ function closeQrModal() { document.getElementById('qrModal').classList.remove('s
 function renderHistory() {
   const orders = getOrders();
   const c = document.getElementById('historyList');
+  // 顶部操作栏：清空全部
+  if (!document.getElementById('historyToolbar')) {
+    const tb = document.createElement('div');
+    tb.id = 'historyToolbar';
+    tb.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;';
+    tb.innerHTML = '<span style="color:#888;font-size:12px;">共 ' + orders.length + ' 条记录（按 路线+出货日期 自动去重）</span><button class="btn btn-danger btn-sm" onclick="clearAllOrders()">清空全部</button>';
+    c.parentNode.insertBefore(tb, c);
+  } else {
+    document.querySelector('#historyToolbar span').textContent = '共 ' + orders.length + ' 条记录（按 路线+出货日期 自动去重）';
+  }
   const filter = (document.getElementById('historyFilter')?.value || '').trim().toLowerCase();
   const sf = document.getElementById('historySource')?.value || 'all';
   let filtered = orders;

@@ -395,14 +395,7 @@ body { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; 
 <div class="page active" id="page-search">
   <div class="search-content">
     <div class="search-title">送货单</div>
-    <div class="search-subtitle">扫码或输入线路号获取电子送货单</div>
-
-    <div class="qr-scan-card" onclick="document.getElementById('orderInput').focus()">
-      <div class="qr-icon">
-        <svg width="80" height="80" viewBox="0 0 80 80" fill="none"><path d="M6 6L30 6L30 12L12 12L12 30L6 30Z" fill="#1A73E8"/><path d="M74 6L50 6L50 12L68 12L68 30L74 30Z" fill="#1A73E8"/><path d="M6 74L30 74L30 68L12 68L12 50L6 50Z" fill="#1A73E8"/><path d="M74 74L50 74L50 68L68 68L68 50L74 50Z" fill="#1A73E8"/><rect x="36" y="36" width="6" height="6" rx="1" fill="#1A73E8"/><rect x="48" y="36" width="6" height="6" rx="1" fill="#34A853"/><rect x="36" y="48" width="6" height="6" rx="1" fill="#34A853"/><rect x="48" y="48" width="6" height="6" rx="1" fill="#1A73E8"/><rect x="12" y="36" width="6" height="6" rx="1" fill="#1A73E8" opacity="0.4"/><rect x="60" y="36" width="6" height="6" rx="1" fill="#34A853" opacity="0.4"/><rect x="36" y="12" width="6" height="6" rx="1" fill="#1A73E8" opacity="0.4"/><rect x="48" y="12" width="6" height="6" rx="1" fill="#34A853" opacity="0.4"/><rect x="60" y="12" width="6" height="6" rx="1" fill="#1A73E8" opacity="0.4"/><rect x="36" y="60" width="6" height="6" rx="1" fill="#1A73E8" opacity="0.4"/><rect x="48" y="60" width="6" height="6" rx="1" fill="#34A853" opacity="0.4"/><rect x="60" y="60" width="6" height="6" rx="1" fill="#1A73E8" opacity="0.4"/></svg>
-      </div>
-      <div class="qr-hint">将二维码对准框内扫描</div>
-    </div>
+    <div class="search-subtitle">输入线路号或选择最近订单</div>
 
     <div class="input-section">
       <div class="input-label">或输入线路号</div>
@@ -424,6 +417,10 @@ body { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; 
 
     <p class="error-msg" id="searchError"></p>
     <div id="orderListResult"></div>
+
+    <div style="text-align:center;margin-top:20px;">
+      <button class="btn btn-outline btn-sm" onclick="clearLocalData()" style="color:#999;font-size:11px;">清空本地缓存（重新扫码会更新）</button>
+    </div>
 
     <div class="recent-section" id="recentSection">
       <div class="recent-title">最近送货单</div>
@@ -538,6 +535,14 @@ function getOrders() {
   } catch (e) { return []; }
 }
 function saveOrders(orders) { localStorage.setItem(STORAGE_KEY, JSON.stringify(orders)); }
+
+// 清空本地缓存（重新扫码会用新数据覆盖）
+function clearLocalData() {
+  if (!confirm('确定清空本地所有送货单缓存吗？\n\n清空后请重新扫码获取最新数据。')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  showToast('已清空本地缓存');
+  setTimeout(() => location.reload(), 800);
+}
 function findOrdersByRoute(route) { return getOrders().filter(o => o.route === route); }
 function getOrderById(id) { return getOrders().find(o => o.id === id); }
 function updateOrder(order) {
