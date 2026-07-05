@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>送货单管理后台</title>
+<title>送货单管理后台 v20260705</title>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
 <style>
@@ -31,6 +31,8 @@ textarea { resize: vertical; min-height: 80px; font-family: inherit; }
 .btn-success:hover { background: #0b8043; }
 .btn-outline { background: #fff; color: #1a73e8; border: 1px solid #1a73e8; }
 .btn-outline:hover { background: #e8f0fe; }
+.btn-gist { background: #24292e; color: #fff; border: 1px solid #24292e; }
+.btn-gist:hover { background: #1b1f23; }
 .btn-sm { padding: 6px 14px; font-size: 13px; }
 .btn-group { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
 .item-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
@@ -160,13 +162,24 @@ textarea { resize: vertical; min-height: 80px; font-family: inherit; }
 <div class="qr-modal" id="qrModal">
   <div class="qr-modal-content">
     <h3>送货单二维码</h3>
+    <div id="qrNav" style="display:none;margin-bottom:12px;">
+      <button class="btn btn-outline btn-sm" id="btnPrevRoute" onclick="prevQrOrder()" style="margin-right:8px;">← 上一条</button>
+      <span id="qrNavInfo" style="font-size:13px;color:#666;"></span>
+      <button class="btn btn-outline btn-sm" id="btnNextRoute" onclick="nextQrOrder()" style="margin-left:8px;float:right;">下一条 →</button>
+    </div>
     <div id="qrcode"></div>
     <p id="qrId" style="margin-top:12px;"></p>
     <p id="qrRoute" style="font-size:13px;color:#888;"></p>
     <p style="font-size:12px;color:#999;margin-top:8px;" id="qrHint">司机扫码后复制文本 → 打开 driver.html → 粘贴导入</p>
     <div class="btn-group" style="justify-content:center;margin-top:12px;">
       <button class="btn btn-outline btn-sm" id="btnCopyData" onclick="copyDriverData()" style="display:none;">复制数据</button>
+      <button class="btn btn-gist btn-sm" id="btnGistUpload" onclick="uploadToGist()" style="display:none;">部署到 Gist</button>
       <button class="btn btn-primary" onclick="closeQrModal()">关闭</button>
+    </div>
+    <div id="gistConfig" style="display:none;margin-top:12px;padding-top:10px;border-top:1px solid #e0e0e0;">
+      <p style="font-size:12px;color:#888;margin-bottom:6px;">GitHub Gist 部署（司机扫码自动加载数据）— Token 只需输入一次</p>
+      <input type="password" id="gistToken" placeholder="输入 GitHub Personal Access Token" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;margin-bottom:6px;box-sizing:border-box;" />
+      <p id="gistStatus" style="font-size:12px;color:#888;"></p>
     </div>
   </div>
 </div>
@@ -200,6 +213,9 @@ function handleFile(event) {
       if (!sheetName) sheetName = wb.SheetNames[0];
       const sheet = wb.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      console.log('[DEBUG] admin 选中的 sheet:', sheetName, '总行数:', rows.length);
+      console.log('[DEBUG] 前 5 行:', rows.slice(0, 5));
+      window._lastSheetName = sheetName;
       parseTemplateRows(rows);
     } catch (err) { showToast('解析失败：' + err.message); }
   };
@@ -219,11 +235,43 @@ function excelDateToString(val) {
 }
 
 function parseTemplateRows(rows) {
-  // 扫描所有"送货单"标题行位置，动态切分（不再依赖固定12行）
+  // ========== 诊断信息采集 ==========
+  const diag = {
+    totalRows: rows.length,
+    titleCount: 0,
+    blocksValid: 0,
+    blocksSkipShort: 0,
+    blocksSkipNoRoute: 0,
+    blocksSkipNoName: 0,
+    itemsRaw: 0,        // Excel中疑似商品行的总数
+    itemsParsed: 0,    // 成功解析的商品数
+    itemsSkipNoCode: 0, // 有名称但无编码跳过的
+    warnings: [],
+    routeSummary: {}
+  };
+
+  // 扫描所有"送货单"标题行位置
   const titleIndices = [];
   for (let i = 0; i < rows.length; i++) {
     const t = String((rows[i] && rows[i][0]) || '').trim();
     if (t.includes('送货单')) titleIndices.push(i);
+  }
+  diag.titleCount = titleIndices.length;
+
+  // ========== 调试信息（显示第一个块的字段读取结果）==========
+  if (titleIndices.length > 0 && !window._dbgShown) {
+    window._dbgShown = true;
+    const start0 = titleIndices[0];
+    const end0 = titleIndices[1] || rows.length;
+    const blk0 = rows.slice(start0, end0);
+    const r1 = blk0[1] || [], r2 = blk0[2] || [], r3 = blk0[3] || [];
+    console.log('[DEBUG 解析] 选中sheet:', window._lastSheetName);
+    console.log('[DEBUG 解析] 第一个块起始行:', start0, '块长度:', blk0.length);
+    console.log('[DEBUG 解析] row1 (客户单号行):', r1);
+    console.log('[DEBUG 解析] row2 (运自行):', r2);
+    console.log('[DEBUG 解析] row3 (出货/线路/停靠行):', r3);
+    console.log('[DEBUG 解析] route (row3[5]):', r3[5]);
+    console.log('[DEBUG 解析] restaurantName (row2[5]):', r2[5]);
   }
 
   if (titleIndices.length === 0) {
@@ -232,43 +280,76 @@ function parseTemplateRows(rows) {
   }
 
   const deliveries = [];
+
   for (let idx = 0; idx < titleIndices.length; idx++) {
     const start = titleIndices[idx];
     const end = idx + 1 < titleIndices.length ? titleIndices[idx + 1] : rows.length;
     const block = rows.slice(start, end);
 
-    if (block.length < 5) continue;
+    if (block.length < 5) { diag.blocksSkipShort++; continue; }
 
-    // block[0]: 标题行「送货单」
-    // block[1]: 客户单号 / 餐厅编码
-    // block[2]: 运自 / 餐厅名称
-    // block[3]: 出货日期 / 线路号 / 停靠号
-    // block[4]: 表头行
-    // block[5+]: 商品明细行（动态数量，直到遇空行或下一个送货单）
+    const row1 = block[1] || [];
+    const row2 = block[2] || [];
+    const row3 = block[3] || [];
+    const row4 = block[4] || []; // 表头行
 
-    const row1 = block[1];
-    const row2 = block[2];
-    const row3 = block[3];
-    const itemRows = block.slice(5);
-
+    // ========== 字段位置映射（根据你的 Excel 实际结构）==========
+    // 行2 (row1): A="客户单号:"  B=客户单号值(IP2026-74-80025270)  E="运至:"  F=运至编码(80025270)
+    // 行3 (row2): A="运自:"  B=运自(郑州物流中心)  E="运至:"  F=餐厅名称
+    // 行4 (row3): A="出货日期:"  B=出货日期  E="线路号:"  F=线路号  G="停靠号:"  H=停靠号
     const restaurantCode = String(row1[5] || '').trim();
     const restaurantName = String(row2[5] || '').trim();
-    const shipDate = excelDateToString(row3[1]);
+    const shipDate = excelDateToString(row3[1] || '');
     const route = String(row3[5] || '').trim();
     const stop = String(row3[7] || '').trim();
 
-    if (!route || !restaurantName) continue;
+    if (!route) { diag.blocksSkipNoRoute++; continue; }
+    if (!restaurantName) { diag.blocksSkipNoName++; continue; }
 
+    diag.blocksValid++;
+
+    // ========== 商品行解析（增强版）==========
     const items = [];
+    const itemRows = block.slice(5);
+    let lastCode = ''; // 处理合并单元格：编码可能在上一行
+
     for (const r of itemRows) {
-      const code = String(r[0] || '').trim();
+      const codeRaw = String(r[0] || '').trim();
       const name = String(r[1] || '').trim();
-      // 商品行必须满足：编码是8位数字（如86111333）
-      // 跳过汇总行（编码空，第8列有数字）
-      // 跳过标识行（编码空，第8列有线路标识如"1001运卸-03")
-      if (!code.match(/^\d{8}$/)) continue;
+
+      // 跳过纯空行
+      const rowHasData = r.some(c => String(c || '').trim());
+      if (!rowHasData) continue;
+
+      // 跳过表头行
+      if (!codeRaw && (name.includes('编码') || name.includes('品名') || name.includes('商品'))) continue;
+
+      // 判断是否为商品行（更宽松的规则）
+      const isCode8Digit = /^\d{7,10}$/.test(codeRaw);
+      const hasName = name.length > 0;
+      const hasQuantity = String(r[2] || '').trim().length > 0;
+
+      let finalCode = codeRaw;
+      // 如果本行无编码但上一行有，可能是合并单元格
+      if (!codeRaw && lastCode && hasName) {
+        finalCode = lastCode;
+      }
+
+      const isItemRow = isCode8Digit || (finalCode && hasName) || (hasName && hasQuantity);
+
+      if (!isItemRow) {
+        diag.itemsSkipNoCode++;
+        // 记录：有数据但不是商品行
+        if (hasName) diag.warnings.push('行' + (start + 5 + itemRows.indexOf(r)) + ': "' + name + '" 未识别为商品（无编码）');
+        continue;
+      }
+
+      diag.itemsParsed++;
+      if (isCode8Digit) lastCode = codeRaw;
+
       items.push({
-        code, name,
+        code: finalCode,
+        name,
         quantity: String(r[2] || '').trim(),
         unit: String(r[3] || '').trim(),
         productionDate: excelDateToString(r[4]),
@@ -278,90 +359,101 @@ function parseTemplateRows(rows) {
       });
     }
 
-    if (items.length === 0) continue;
+    if (items.length === 0) {
+      diag.warnings.push('线路『' + route + '』餐厅『' + restaurantName + '』未解析到商品，已跳过');
+      continue;
+    }
+
+    // 按线路汇总
+    if (!diag.routeSummary[route]) diag.routeSummary[route] = { restaurants: 0, items: 0 };
+    diag.routeSummary[route].restaurants++;
+    diag.routeSummary[route].items += items.length;
 
     deliveries.push({ route, shipDate, stop, restaurantCode, restaurantName, items });
   }
 
+  // ========== 校验：扫描整个sheet的商品行数 ==========
+  // 用同样的"商品行"规则：跳过送货单标题块、跳过表头行
+  diag.itemsRaw = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const code = String(rows[i][0] || '').trim();
+    const name = String(rows[i][1] || '').trim();
+    if (rows[i].every(c => !String(c).trim())) continue; // 全空行
+    if (name.includes('送货单')) continue; // 标题行
+    if (code.includes('编码') || name === '名称' || name === '品名') continue; // 表头行
+    // 只数第0列是7-10位数字的（商品编码是黄金标准）
+    if (/^\d{7,10}$/.test(code)) {
+      diag.itemsRaw++;
+    }
+  }
+
+  // ========== 显示报告 ==========
+  showParsingReport(diag, deliveries);
+}
+
+// ========== 解析报告弹窗 ==========
+function showParsingReport(diag, deliveries) {
   if (deliveries.length === 0) {
     showToast('未找到有效的送货单数据，请检查模板格式');
     return;
   }
 
-  // 完整性校验：统计Excel中实际商品行数量
-  let excelItemCount = 0;
-  for (let i = 0; i < rows.length; i++) {
-    const code = String(rows[i][0] || '').trim();
-    if (code.match(/^\d{8}$/)) excelItemCount++;
-  }
-  
-  const parsedItemCount = deliveries.reduce((s, d) => s + d.items.length, 0);
-  
-  if (parsedItemCount !== excelItemCount) {
-    showToast(`警告：解析商品数(${parsedItemCount})与Excel商品数(${excelItemCount})不一致！`);
-    console.warn('Missing items!', 'Excel:', excelItemCount, 'Parsed:', parsedItemCount);
-  }
-
-  // 按线路分组，按停靠号排序
+  // 按线路分组
   const routeMap = {};
   deliveries.forEach(d => {
-    if (!routeMap[d.route]) routeMap[d.route] = {
-      route: d.route,
-      shipDate: d.shipDate,
-      restaurants: []
-    };
-    routeMap[d.route].restaurants.push({
-      stop: d.stop,
-      code: d.restaurantCode,
-      name: d.restaurantName,
-      items: d.items
-    });
+    if (!routeMap[d.route]) routeMap[d.route] = { route: d.route, shipDate: d.shipDate, restaurants: [] };
+    routeMap[d.route].restaurants.push(d);
   });
-
-  // 每条线路内按停靠号排序
-  Object.values(routeMap).forEach(r => {
-    r.restaurants.sort((a, b) => {
-      const sa = parseInt(a.stop) || 0;
-      const sb = parseInt(b.stop) || 0;
-      return sa - sb;
-    });
-  });
-
   parsedRouteGroups = Object.values(routeMap);
-  renderParseResult();
-}
 
-function renderParseResult() {
-  const c = document.getElementById('parseResult');
-  if (parsedRouteGroups.length === 0) { c.innerHTML = ''; return; }
+  const totalRestaurants = deliveries.length;
+  const totalItems = deliveries.reduce((s, d) => s + d.items.length, 0);
+  const isComplete = diag.itemsParsed >= diag.itemsRaw;
 
-  const totalRestaurants = parsedRouteGroups.reduce((s, g) => s + g.restaurants.length, 0);
-  const totalItems = parsedRouteGroups.reduce((s, g) => s + g.restaurants.reduce((sr, r) => sr + r.items.length, 0), 0);
-  
+  // 构建报告HTML
   let h = '<div class="split-result">';
-  h += `<div class="summary">共解析出 <b>${parsedRouteGroups.length}</b> 条线路，<b>${totalRestaurants}</b> 家餐厅，<b>${totalItems}</b> 个商品</div>`;
-  h += `<div style="background:#e6f4ea;color:#0f9d58;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:14px;">✓ 已校验：所有商品数据完整解析，无遗漏</div>`;
 
+  // 总览
+  const summaryClass = isComplete ? 'background:#e6f4ea;color:#0f9d58;border:1px solid #0f9d58;' : 'background:#fef7e0;color:#e37400;border:1px solid #e37400;';
+  h += '<div style="padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:14px;' + summaryClass + '">';
+  h += '<b>解析结果总览</b><br>';
+  h += '送货单区块：' + diag.titleCount + ' 个 → 有效：' + diag.blocksValid + ' 个';
+  if (diag.blocksSkipShort > 0) h += '（过短跳过 ' + diag.blocksSkipShort + '）';
+  if (diag.blocksSkipNoRoute > 0) h += '（缺线路号 ' + diag.blocksSkipNoRoute + '）';
+  h += '<br>';
+  h += '商品行：解析 ' + diag.itemsParsed + ' 条 / Excel中疑似 ' + diag.itemsRaw + ' 条 → ';
+  if (isComplete) {
+    h += '<b style="color:#0f9d58;">✓ 完整，无遗漏</b>';
+  } else {
+    h += '<b style="color:#e37400;">⚠ 可能遗漏 ' + (diag.itemsRaw - diag.itemsParsed) + ' 条</b>';
+  }
+  h += '</div>';
+
+  // 各线路明细（确认无误后点击"确认导入"）
+  h += '<div style="font-size:14px;font-weight:600;margin-bottom:8px;">各线路明细（确认无误后点击"确认导入"）</div>';
   parsedRouteGroups.forEach((g, gi) => {
-    h += `<div class="route-group"><h4>${gi + 1}. 线路 ${esc(g.route)} <span class="count">(${g.restaurants.length} 家餐厅，出货日期：${esc(g.shipDate)})</span></h4>`;
-    g.restaurants.forEach((r, ri) => {
-      h += `<div class="restaurant-group"><h5>停靠 ${r.stop} · ${esc(r.name)} <span class="stop">(${r.code})</span> — ${r.items.length} 个商品</h5>`;
-      h += `<div class="item-preview"><table><tr><th>编码</th><th>名称</th><th>数量</th><th>单位</th><th>货品分类</th><th>供应商</th></tr>`;
-      r.items.forEach(it => h += `<tr><td>${esc(it.code)}</td><td>${esc(it.name)}</td><td>${esc(it.quantity)}</td><td>${esc(it.unit)}</td><td>${esc(it.category)}</td><td>${esc(it.supplierName)}</td></tr>`);
-      h += `</table></div></div>`;
+    h += '<div class="route-group"><h4>' + (gi + 1) + '. 线路 ' + esc(g.route) + ' <span class="count">（' + g.restaurants.length + ' 家餐厅，' + g.restaurants.reduce((s,r)=>s+r.items.length,0) + ' 个商品）</span></h4>';
+    g.restaurants.forEach((d, ri) => {
+      h += '<div class="restaurant-group"><h5>停靠 ' + esc(d.stop) + ' · ' + esc(d.restaurantName) + ' <span class="stop">（' + esc(d.restaurantCode) + '）</span> — ' + d.items.length + ' 个商品</h5>';
+      h += '<div class="item-preview"><table><tr><th>编码</th><th>名称</th><th>数量</th><th>单位</th><th>分类</th><th>供应商</th></tr>';
+      d.items.forEach(it => {
+        h += '<tr><td>' + esc(it.code) + '</td><td>' + esc(it.name) + '</td><td>' + esc(it.quantity) + '</td><td>' + esc(it.unit) + '</td><td>' + esc(it.category) + '</td><td>' + esc(it.supplierName) + '</td></tr>';
+      });
+      h += '</table></div></div>';
     });
-    h += `</div>`;
+    h += '</div>';
   });
 
-  h += `<div class="btn-group" style="margin-top:16px;">
-    <button class="btn btn-success" onclick="importAllRoutes()">确认导入（${totalRestaurants} 家餐厅）</button>
-    <button class="btn btn-outline" onclick="clearImport()">取消</button>
-  </div>`;
-  h += '</div>';
-  c.innerHTML = h;
+  h += '<div class="btn-group" style="margin-top:16px;">';
+  h += '<button class="btn btn-success" onclick="confirmImport()">✓ 确认导入（' + totalRestaurants + ' 家餐厅，' + totalItems + ' 个商品）</button>';
+  h += '<button class="btn btn-outline" onclick="clearImport()">取消</button>';
+  h += '</div></div>';
+
+  document.getElementById('parseResult').innerHTML = h;
 }
 
-function importAllRoutes() {
+// 确认导入（替换原来的 importAllRoutes）
+function confirmImport() {
   if (parsedRouteGroups.length === 0) return;
   const orders = getOrders();
   const newOrders = [];
@@ -372,13 +464,13 @@ function importAllRoutes() {
       route: g.route,
       shipDate: g.shipDate,
       source: 'excel-template',
-      restaurants: g.restaurants.map((r, idx) => ({
+      restaurants: g.restaurants.map((d, idx) => ({
         id: 'R' + (idx + 1),
-        stop: r.stop,
-        code: r.code,
-        name: r.name,
+        stop: d.stop,
+        code: d.restaurantCode,
+        name: d.restaurantName,
         order: idx + 1,
-        items: r.items.map(it => ({ ...it }))
+        items: d.items.map(it => ({ ...it }))
       })),
       createdAt: new Date().toISOString(),
       progress: {},
@@ -388,11 +480,14 @@ function importAllRoutes() {
   });
 
   saveOrders(orders);
-  showToast(`成功导入 ${newOrders.length} 条线路的送货单`);
+  showToast('成功导入 ' + newOrders.length + ' 条线路，共 ' + newOrders.reduce((s,o)=>s+(o.restaurants?o.restaurants.length:0),0) + ' 家餐厅');
   parsedRouteGroups = [];
   document.getElementById('parseResult').innerHTML = '';
   document.getElementById('fileInput').value = '';
-  if (newOrders.length === 1) showQrModal(newOrders[0]);
+  window._qrOrderList = newOrders;
+  window._qrIndex = 0;
+  showQrModal(newOrders[0]);
+  updateQrNavButtons();
 }
 
 function clearImport() {
@@ -442,7 +537,8 @@ function createManualDelivery() {
     items, createdAt: new Date().toISOString(), progress: { currentRestaurantIndex: 0 },
   };
   const orders = getOrders(); orders.unshift(order); saveOrders(orders);
-  showQrModal(order);
+  window._qrOrderList = [order]; window._qrIndex = 0;
+  showQrModal(order); updateQrNavButtons();
   document.getElementById('routeName').value = '';
   document.getElementById('restaurants').value = '';
   document.getElementById('itemsContainer').innerHTML = `<div class="item-row"><input type="text" placeholder="商品名称" class="item-name"><input type="text" placeholder="数量/规格" class="item-spec" style="max-width:160px;"><button class="btn btn-outline btn-sm" onclick="removeItem(this)" style="visibility:hidden;">删除</button></div>`;
@@ -458,27 +554,161 @@ function showQrModal(order) {
   const orderData = JSON.stringify(order);
   const compressed = btoa(encodeURIComponent(orderData).replace(/%([0-9A-F]{2})/g, (m, p) => String.fromCharCode('0x' + p)));
   window._lastCompressed = compressed;
+  window._lastOrderData = order;
+
+  // 自动填充已保存的 Token
+  const savedToken = localStorage.getItem('gist_token');
+  const gistConfig = document.getElementById('gistConfig');
+  if (gistConfig) gistConfig.style.display = 'block';
+  const gistTokenInput = document.getElementById('gistToken');
+  if (gistTokenInput) { gistTokenInput.style.display = ''; gistTokenInput.value = savedToken || ''; }
+  const gistStatus = document.getElementById('gistStatus');
+  if (gistStatus) gistStatus.textContent = '';
+  const gistBtn = document.getElementById('btnGistUpload');
+  if (gistBtn) gistBtn.style.display = 'inline-block';
   const copyBtn = document.getElementById('btnCopyData');
   if (copyBtn) copyBtn.style.display = 'inline-block';
 
-  // 判断当前是否通过服务器访问（非 file:// 协议）
+  // 判断当前访问方式
+  const isFileProtocol = window.location.protocol === 'file:';
   const isServer = window.location.protocol.startsWith('http') && !window.location.hostname.includes('localhost') && window.location.hostname !== '127.0.0.1';
-  let qrText;
+
+  let qrText, tooLongForQr = false;
+
   if (isServer) {
-    // 服务器模式：生成完整URL，司机扫码直接打开
+    // 服务器模式：生成完整URL
     const baseUrl = window.location.origin + window.location.pathname.replace('delivery_admin.html', 'driver.html');
     qrText = baseUrl + '?data=' + compressed;
     document.getElementById('qrHint').textContent = '司机扫码直接打开即可使用';
+  } else if (isFileProtocol) {
+    // 桌面模式：直接提示使用 Gist
+    document.getElementById('qrHint').textContent = '本地文件模式：请使用「部署到 Gist」生成可扫码的短链接';
+    if (savedToken) {
+      // 有 Token，自动上传
+      document.getElementById('gistStatus').textContent = '🔄 正在自动部署到 Gist...';
+      uploadToGist();
+      return;
+    } else {
+      // 没有 Token，提示输入
+      qrc.innerHTML = '<div style="padding:18px;background:#e8f0fe;border:1px solid #1a73e8;border-radius:8px;color:#1a73e8;font-size:13px;line-height:1.6;text-align:left;">' +
+        '<strong>📱 生司机扫码二维码</strong><br>' +
+        '1. 在下方输入 GitHub Token（只需输入一次）<br>' +
+        '2. 点击「部署到 Gist」按钮<br>' +
+        '3. 自动生成二维码，司机扫码即可<br><br>' +
+        '<span style="font-size:12px;color:#666;">获取 Token：github.com/settings/tokens → Generate new token → 勾选 gist</span>' +
+        '</div>';
+      return;
+    }
   } else {
-    // 本地文件模式：只存数据文本，需配合粘贴
-    qrText = compressed;
-    document.getElementById('qrHint').textContent = '司机扫码后复制文本 → 打开 driver.html → 粘贴导入';
+    // localhost 模式
+    const baseUrl = window.location.origin + window.location.pathname.replace('delivery_admin.html', 'driver.html');
+    qrText = baseUrl + '?data=' + compressed;
+    document.getElementById('qrHint').textContent = '司机扫码直接打开（确保手机和电脑在同一网络）';
   }
-  new QRCode(qrc, { text: qrText, width: 220, height: 220, colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.L });
+
+  // 检查二维码容量
+  if (qrText.length > 1500) tooLongForQr = true;
+
+  if (tooLongForQr || isFileProtocol) {
+    if (savedToken) {
+      document.getElementById('qrHint').textContent = '🔄 数据量较大，正在自动生成扫码链接...';
+      uploadToGist();
+    } else {
+      qrc.innerHTML = '<div style="padding:18px;background:#fef7e0;border:1px solid #e37400;border-radius:8px;color:#b06000;font-size:13px;">数据量较大，请使用「部署到 Gist」生成短链接二维码</div>';
+    }
+  } else {
+    try {
+      new QRCode(qrc, { text: qrText, width: 220, height: 220, colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.L });
+    } catch (e) {
+      qrc.innerHTML = '<div style="padding:18px;background:#fef7e0;border:1px solid #e37400;border-radius:8px;color:#b06000;font-size:13px;">二维码生成失败，请使用「部署到 Gist」</div>';
+    }
+  }
 }
 function copyDriverData() {
   if (!window._lastCompressed) return;
   navigator.clipboard.writeText(window._lastCompressed).then(() => showToast('已复制！发给司机，在driver.html中粘贴导入'));
+}
+// 多线路二维码导航
+function updateQrNavButtons() {
+  const nav = document.getElementById('qrNav');
+  if (!nav) return;
+  const list = window._qrOrderList || [];
+  if (list.length <= 1) { nav.style.display = 'none'; return; }
+  nav.style.display = 'block';
+  document.getElementById('btnPrevRoute').style.visibility = window._qrIndex > 0 ? 'visible' : 'hidden';
+  document.getElementById('btnNextRoute').style.visibility = window._qrIndex < list.length - 1 ? 'visible' : 'hidden';
+  document.getElementById('qrNavInfo').textContent = (window._qrIndex + 1) + ' / ' + list.length;
+}
+function nextQrOrder() {
+  const list = window._qrOrderList || [];
+  if (window._qrIndex < list.length - 1) { window._qrIndex++; showQrModal(list[window._qrIndex]); updateQrNavButtons(); }
+}
+function prevQrOrder() {
+  const list = window._qrOrderList || [];
+  if (window._qrIndex > 0) { window._qrIndex--; showQrModal(list[window._qrIndex]); updateQrNavButtons(); }
+}
+// ========== Gist 部署 ==========
+window._lastOrderData = null; // Gist 上传时使用
+
+function uploadToGist() {
+  const token = document.getElementById('gistToken').value.trim();
+  const statusEl = document.getElementById('gistStatus');
+  if (!token) { statusEl.textContent = '⚠️ 请输入 GitHub Personal Access Token'; return; }
+  if (!window._lastOrderData) { statusEl.textContent = '⚠️ 没有可上传的数据'; return; }
+  statusEl.textContent = '🔄 正在上传...';
+
+  const order = window._lastOrderData;
+  const dataStr = JSON.stringify(order);
+  const filename = 'delivery-' + order.route.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_') + '-' + (order.shipDate || 'unknown') + '.json';
+
+  fetch('https://api.github.com/gists', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      description: '送货单 线路' + order.route + ' ' + (order.shipDate || '') + ' ' + (order.restaurants ? order.restaurants.length + '家餐厅' : ''),
+      public: false,
+      files: {}
+    })
+  }).then(r => r.json()).then(gist => {
+    if (gist.id) {
+      // Gist created, now upload file content
+      return fetch('https://api.github.com/gists/' + gist.id, {
+        method: 'PATCH',
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          files: { [filename]: { content: dataStr } }
+        })
+      });
+    } else {
+      throw new Error(gist.message || '创建 Gist 失败');
+    }
+  }).then(r => r.json()).then(gist => {
+    if (gist.html_url) {
+      const gistId = gist.id;
+      // 保存 Token 到 localStorage，后续自动使用
+      localStorage.setItem('gist_token', token);
+      const driverUrl = window.location.origin + window.location.pathname.replace('delivery_admin.html', 'driver.html') + '?gist=' + gistId;
+      statusEl.innerHTML = '✅ 部署成功！Token 已记住，下次自动生成';
+      // 更新二维码为短链接
+      const qrc = document.getElementById('qrcode');
+      qrc.innerHTML = '';
+      new QRCode(qrc, { text: driverUrl, width: 220, height: 220, colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.L });
+      document.getElementById('qrHint').textContent = '司机扫码直接打开即可使用';
+      // 隐藏 token 输入区
+      document.getElementById('gistToken').style.display = 'none';
+      document.getElementById('btnGistUpload').style.display = 'none';
+    } else {
+      throw new Error(gist.message || '上传文件失败');
+    }
+  }).catch(err => {
+    statusEl.textContent = '❌ ' + err.message + '（请检查 Token 是否正确，且已勾选 gist 权限）';
+  });
+}
+
+// 清除已保存的 Token（在历史记录页提供入口）
+function clearGistToken() {
+  localStorage.removeItem('gist_token');
+  showToast('Token 已清除');
 }
 function closeQrModal() { document.getElementById('qrModal').classList.remove('show'); }
 
@@ -508,7 +738,10 @@ function renderHistory() {
 }
 function handleQrBtn(btn) { const id = btn.getAttribute('data-id'); if (id) showOrderQr(id); }
 function handleDelBtn(btn) { const id = btn.getAttribute('data-id'); if (id) deleteOrder(id); }
-function showOrderQr(id) { const o = getOrders().find(o => o.id === id); if (o) showQrModal(o); }
+function showOrderQr(id) {
+  const o = getOrders().find(o => o.id === id);
+  if (o) { window._qrOrderList = [o]; window._qrIndex = 0; showQrModal(o); updateQrNavButtons(); }
+}
 function deleteOrder(id) {
   console.log('deleteOrder called with id:', id);
   if (!confirm('确定删除该送货单吗？')) return;
