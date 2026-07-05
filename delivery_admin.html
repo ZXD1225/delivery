@@ -654,51 +654,55 @@ function uploadToGist() {
   const token = document.getElementById('gistToken').value.trim();
   const statusEl = document.getElementById('gistStatus');
   if (!token) { statusEl.textContent = '⚠️ 请输入 GitHub Personal Access Token'; return; }
-  if (!window._lastOrderData) { statusEl.textContent = '⚠️ 没有可上传的数据'; return; }
-  statusEl.textContent = '🔄 正在上传...';
 
-  const order = window._lastOrderData;
-  const dataStr = JSON.stringify(order);
-  const filename = 'delivery-' + order.route.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_') + '-' + (order.shipDate || 'unknown') + '.json';
+  // 上传全部线路，不再只传当前一条
+  const orders = getOrders();
+  if (orders.length === 0) { statusEl.textContent = '⚠️ 没有可上传的数据'; return; }
 
+  // 当前正在查看的线路（用于生成该线路的二维码）
+  const currentOrder = window._lastOrderData;
+  const currentRoute = currentOrder ? currentOrder.route : (orders[0] ? orders[0].route : '');
+
+  statusEl.textContent = '🔄 正在上传全部 ' + orders.length + ' 条线路...';
+
+  const dataStr = JSON.stringify(orders);
+  const today = new Date().toISOString().split('T')[0];
+  const filename = 'delivery-all-' + today + '.json';
+
+  // 一步到位：创建 Gist 时直接带上全部线路数据
   fetch('https://api.github.com/gists', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      description: '送货单 线路' + order.route + ' ' + (order.shipDate || '') + ' ' + (order.restaurants ? order.restaurants.length + '家餐厅' : ''),
+      description: '送货单 全部线路 ' + orders.length + '条 ' + today,
       public: false,
-      files: {}
+      files: { [filename]: { content: dataStr } }
     })
-  }).then(r => r.json()).then(gist => {
-    if (gist.id) {
-      // Gist created, now upload file content
-      return fetch('https://api.github.com/gists/' + gist.id, {
-        method: 'PATCH',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          files: { [filename]: { content: dataStr } }
-        })
-      });
-    } else {
-      throw new Error(gist.message || '创建 Gist 失败');
-    }
   }).then(r => r.json()).then(gist => {
     if (gist.html_url) {
       const gistId = gist.id;
       // 保存 Token 到 localStorage，后续自动使用
       localStorage.setItem('gist_token', token);
-      const driverUrl = window.location.origin + window.location.pathname.replace('delivery_admin.html', 'driver.html') + '?gist=' + gistId;
-      statusEl.innerHTML = '✅ 部署成功！Token 已记住，下次自动生成';
-      // 更新二维码为短链接
+      // 生成司机扫码链接：桌面 file:// 模式下强制使用 GitHub Pages 地址
+      let driverBaseUrl;
+      if (window.location.protocol === 'file:') {
+        driverBaseUrl = 'https://zxd1225.github.io/delivery/driver.html';
+      } else {
+        driverBaseUrl = window.location.origin + window.location.pathname.replace('delivery_admin.html', 'driver.html');
+      }
+      // URL 带上 &route=xxx，司机扫码后自动跳到对应线路
+      const driverUrl = driverBaseUrl + '?gist=' + gistId + '&route=' + encodeURIComponent(currentRoute);
+      statusEl.innerHTML = '✅ 全部 ' + orders.length + ' 条线路已上传！Token 已记住<br>司机链接（' + esc(currentRoute) + '）：<br><a href="' + driverUrl + '" target="_blank" style="color:var(--c-primary);word-break:break-all;font-size:12px;">' + driverUrl + '</a>';
+      // 更新二维码（当前线路的扫码链接）
       const qrc = document.getElementById('qrcode');
       qrc.innerHTML = '';
       new QRCode(qrc, { text: driverUrl, width: 220, height: 220, colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.L });
-      document.getElementById('qrHint').textContent = '司机扫码直接打开即可使用';
+      document.getElementById('qrHint').textContent = '司机扫码直接打开（已包含全部线路数据）';
       // 隐藏 token 输入区
       document.getElementById('gistToken').style.display = 'none';
       document.getElementById('btnGistUpload').style.display = 'none';
     } else {
-      throw new Error(gist.message || '上传文件失败');
+      throw new Error(gist.message || '创建 Gist 失败');
     }
   }).catch(err => {
     statusEl.textContent = '❌ ' + err.message + '（请检查 Token 是否正确，且已勾选 gist 权限）';

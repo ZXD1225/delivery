@@ -588,8 +588,60 @@ function getUrlParam(name) {
   return val;
 }
 
+// ==================== Gist 加载 ====================
+function loadFromGist(gistId) {
+  fetch('https://api.github.com/gists/' + gistId)
+    .then(r => { if (!r.ok) throw new Error('Gist 加载失败 (' + r.status + ')'); return r.json(); })
+    .then(gist => {
+      const files = gist.files;
+      const fileKeys = Object.keys(files);
+      if (fileKeys.length === 0) throw new Error('Gist 中没有文件');
+      const content = files[fileKeys[0]].content;
+      const data = JSON.parse(content);
+
+      if (Array.isArray(data)) {
+        // 新格式：全部线路数组，直接覆盖本地存储
+        saveOrders(data);
+      } else if (data && data.restaurants) {
+        // 旧格式：单条线路，合并进本地存储
+        const orders = getOrders();
+        const exists = orders.findIndex(o => o.id === data.id);
+        if (exists === -1) orders.unshift(data); else orders[exists] = data;
+        saveOrders(orders);
+      } else {
+        throw new Error('数据格式无效');
+      }
+
+      // 根据 URL 参数 &route=xxx 自动跳转到对应线路
+      const routeParam = new URLSearchParams(window.location.search).get('route');
+      if (routeParam) {
+        const target = getOrders().find(o => o.route === routeParam);
+        if (target) { loadOrder(target); return; }
+      }
+
+      // 没有 route 参数或找不到对应线路：显示搜索页
+      showPage('page-search');
+    })
+    .catch(err => {
+      showToast('⚠️ ' + err.message);
+      showPage('page-search');
+    });
+}
+
 // ==================== 初始化 ====================
 (function initFromUrl() {
+  // 优先检查 Gist 参数
+  const gistId = new URLSearchParams(window.location.search).get('gist');
+  if (gistId) {
+    showPage('page-search');
+    const titleEl = document.querySelector('.search-title');
+    const subEl = document.querySelector('.search-subtitle');
+    if (titleEl) titleEl.textContent = '正在加载配送数据...';
+    if (subEl) subEl.textContent = '请稍候';
+    loadFromGist(gistId);
+    return;
+  }
+  // 检查 data 参数（base64 编码）
   const orderData = getUrlParam('data');
   if (orderData && orderData.id) {
     const orders = getOrders();
@@ -1107,17 +1159,6 @@ function esc(s) {
   div.textContent = String(s);
   return div.innerHTML;
 }
-
-// ==================== 初始化 ====================
-(function init() {
-  renderRecentList();
-  const orderId = getUrlParam('order') || getUrlParam('qr_code');
-  if (orderId) {
-    const order = getOrderById(orderId);
-    if (order) { loadOrder(order); return; }
-  }
-  showPage('page-search');
-})();
 
 </script>
 
