@@ -595,42 +595,112 @@ function getUrlParam(name) {
 
 // ==================== Gist 加载 ====================
 function loadFromGist(gistId) {
-  fetch('https://api.github.com/gists/' + gistId)
-    .then(r => { if (!r.ok) throw new Error('Gist 加载失败 (' + r.status + ')'); return r.json(); })
+  // 优先用 raw URL（更稳定、更快、不受 API 限流影响）
+  // Secret Gist 的 raw URL 也能匿名访问
+  const rawUrl = 'https://gist.githubusercontent.com/zxd1225/' + gistId + '/raw';
+  const apiUrl = 'https://api.github.com/gists/' + gistId;
+
+  // 10 秒超时
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+  fetch(rawUrl, { signal: controller.signal })
+    .then(r => {
+      clearTimeout(timeoutId);
+      if (!r.ok) throw new Error('raw 加载失败 (' + r.status + ')，尝试备用方式...');
+      return r.text();
+    })
+    .then(text => {
+      try {
+        const data = JSON.parse(text);
+        processGistData(data, gistId);
+      } catch (e) {
+        // raw URL 解析失败，可能是重定向问题，fallback 到 API
+        console.log('raw parse failed, trying API...');
+        fetchViaApi(gistId);
+      }
+    })
+    .catch(err => {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        showErrorWithRetry('网络超时，可能是公司WiFi或手机网络限制了 GitHub 访问', gistId);
+      } else {
+        // raw 失败，尝试 API fallback
+        console.log('raw failed:', err.message, 'trying API...');
+        fetchViaApi(gistId);
+      }
+    });
+}
+
+// API fallback
+function fetchViaApi(gistId) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+  fetch('https://api.github.com/gists/' + gistId, { signal: controller.signal })
+    .then(r => {
+      clearTimeout(timeoutId);
+      if (!r.ok) throw new Error('Gist 加载失败 (' + r.status + ')');
+      return r.json();
+    })
     .then(gist => {
       const files = gist.files;
       const fileKeys = Object.keys(files);
       if (fileKeys.length === 0) throw new Error('Gist 中没有文件');
       const content = files[fileKeys[0]].content;
       const data = JSON.parse(content);
-
-      if (Array.isArray(data)) {
-        // 新格式：全部线路数组，直接覆盖本地存储
-        saveOrders(data);
-      } else if (data && data.restaurants) {
-        // 旧格式：单条线路，合并进本地存储
-        const orders = getOrders();
-        const exists = orders.findIndex(o => o.id === data.id);
-        if (exists === -1) orders.unshift(data); else orders[exists] = data;
-        saveOrders(orders);
-      } else {
-        throw new Error('数据格式无效');
-      }
-
-      // 根据 URL 参数 &route=xxx 自动跳转到对应线路
-      const routeParam = new URLSearchParams(window.location.search).get('route');
-      if (routeParam) {
-        const target = getOrders().find(o => o.route === routeParam);
-        if (target) { loadOrder(target); return; }
-      }
-
-      // 没有 route 参数或找不到对应线路：显示搜索页
-      showPage('page-search');
+      processGistData(data, gistId);
     })
     .catch(err => {
-      showToast('⚠️ ' + err.message);
-      showPage('page-search');
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        showErrorWithRetry('网络超时，请检查网络后重试', gistId);
+      } else {
+        showErrorWithRetry('加载失败：' + err.message, gistId);
+      }
     });
+}
+
+// 处理 Gist 数据（公共逻辑）
+function processGistData(data, gistId) {
+  if (Array.isArray(data)) {
+    // 新格式：全部线路数组，直接覆盖本地存储
+    saveOrders(data);
+  } else if (data && data.restaurants) {
+    // 旧格式：单条线路，合并进本地存储
+    const orders = getOrders();
+    const exists = orders.findIndex(o => o.id === data.id);
+    if (exists === -1) orders.unshift(data); else orders[exists] = data;
+    saveOrders(orders);
+  } else {
+    throw new Error('数据格式无效');
+  }
+
+  // 恢复标题
+  const titleEl = document.querySelector('.search-title');
+  const subEl = document.querySelector('.search-subtitle');
+  if (titleEl) titleEl.textContent = '送货单';
+  if (subEl) subEl.textContent = '输入线路号或选择最近订单';
+
+  // 根据 URL 参数 &route=xxx 自动跳转到对应线路
+  const routeParam = new URLSearchParams(window.location.search).get('route');
+  if (routeParam) {
+    const target = getOrders().find(o => o.route === routeParam);
+    if (target) { loadOrder(target); return; }
+  }
+
+  // 没有 route 参数或找不到对应线路：显示搜索页
+  showPage('page-search');
+  showToast('✅ 数据加载完成');
+}
+
+// 显示错误 + 重试按钮
+function showErrorWithRetry(msg, gistId) {
+  const titleEl = document.querySelector('.search-title');
+  const subEl = document.querySelector('.search-subtitle');
+  if (titleEl) titleEl.textContent = '加载失败';
+  if (subEl) subEl.innerHTML = '⚠️ ' + msg + '<br><button onclick="loadFromGist(\'' + gistId + '\')" style="margin-top:10px;padding:8px 20px;background:var(--c-primary);color:#fff;border:none;border-radius:6px;font-size:14px;">重新加载</button>';
+  showPage('page-search');
 }
 
 // ==================== 初始化 ====================
