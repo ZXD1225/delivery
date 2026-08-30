@@ -496,7 +496,7 @@ function confirmImport() {
 
   parsedRouteGroups.forEach(g => {
     const order = {
-      id: generateId(),
+      id: (g.route + '|' + g.shipDate),
       route: g.route,
       shipDate: g.shipDate,
       source: 'excel-template',
@@ -655,7 +655,7 @@ function createManualDelivery() {
   if (items.length === 0) { showToast('请至少添加一个商品'); return; }
   const restaurants = restRaw.split('\n').map(r => r.trim()).filter(r => r);
   const order = {
-    id: generateId(), route: routeName, shipDate: dd || new Date().toISOString().split('T')[0], source: 'manual',
+    id: (routeName + '|' + (dd || new Date().toISOString().split('T')[0])), route: routeName, shipDate: dd || new Date().toISOString().split('T')[0], source: 'manual',
     restaurants: restaurants.map((n, i) => ({ id: 'R' + (i + 1), stop: String(i + 1).padStart(2, '0'), code: '', name: n, order: i + 1, items: [] })),
     items, createdAt: new Date().toISOString(), progress: { currentRestaurantIndex: 0 },
   };

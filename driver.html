@@ -417,7 +417,28 @@ body { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; 
 .is-batcherror { background:#FDF4FF !important; border-color:#C026D3 !important; }
 .is-batcherror::before { background:#C026D3 !important; }
 .batcherror-tag { font-size:10.5px;color:#C026D3;font-weight:600;margin-top:3px; }
-.item-check-row.flash { outline:3px solid #1A73E8; outline-offset:-3px; }
+.item-check-row.flash { outline:3px solid #1A73E8; outline-offset:-3px;   .note-tag { display:inline-block; font-size:12px; color:#7c3aed; background:#f3e8ff; border:1px solid #e9d5ff; padding:1px 6px; border-radius:4px; margin-top:4px; cursor:pointer; }
+  .route-progress { font-size:12px; color:#666; margin-top:2px; }
+  .reorder-btn { background:#fff; border:1px solid var(--c-border-light); border-radius:6px; font-size:12px; padding:4px 10px; cursor:pointer; margin-top:8px; }
+  .inv-query-result { margin-top:10px; max-height:40vh; overflow-y:auto; }
+  .inv-q-hint { font-size:12px; color:#BE123C; margin-top:8px; }
+  .inv-note-box { margin-top:12px; border-top:1px dashed #e5e7eb; padding-top:10px; }
+  .inv-note-title { font-size:12px; color:#666; margin-bottom:6px; }
+  .inv-note-saved { margin-top:8px; font-size:12px; color:#AD6800; background:#FFF7E6; border:1px solid #FFD591; padding:6px 8px; border-radius:6px; }
+  .inv-note-sys { font-size:13px; color:#374151; margin-bottom:6px; }
+  .modal-note-input { width:100%; box-sizing:border-box; min-height:64px; border:1px solid #d1d5db; border-radius:8px; padding:8px 10px; font-size:14px; font-family:inherit; resize:vertical; }
+  .inv-q-hint { font-size:12px; color:#BE123C; font-weight:600; margin-bottom:6px; }
+  .inv-q-name { font-size:15px; font-weight:600; margin-bottom:2px; }
+  .inv-q-code { font-size:12px; color:#6B7280; font-family:monospace; margin-bottom:6px; }
+  .inv-batch { display:flex; justify-content:space-between; padding:5px 8px; background:#f7f7f9; border-radius:6px; margin-bottom:4px; font-size:13px; }
+  .inv-empty { color:#999; font-size:13px; padding:8px; }
+  .modal-note-box { background:#f7f7f9; border-radius:8px; padding:12px; font-size:14px; line-height:1.6; margin-top:6px; white-space:pre-wrap; word-break:break-all; }
+  .reorder-list { margin-top:8px; max-height:50vh; overflow-y:auto; }
+  .reorder-item { display:flex; align-items:center; gap:10px; padding:10px 8px; border-bottom:1px solid var(--c-border-light); }
+  .reorder-item .reorder-rank { width:24px; height:24px; border-radius:50%; background:var(--c-primary,#4f46e5); color:#fff; font-size:12px; display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
+  .reorder-item .reorder-name { flex:1; font-size:14px; }
+  .reorder-item .reorder-btns button { border:1px solid var(--c-border-light); background:#fff; border-radius:6px; width:32px; height:32px; font-size:16px; cursor:pointer; margin-left:4px; }
+}
 </style>
 </head>
 <body>
@@ -463,7 +484,7 @@ body { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; 
 <!-- ==================== 点货页 ==================== -->
 <div class="page" id="page-check">
   <div class="header">
-    <button class="back-btn" onclick="goToSearch()">
+    <button class="back-btn" id="backBtn" onclick="goToSearch()">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M15 6L9 12L15 18" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
     <h1 id="checkRouteName">点货</h1>
@@ -480,6 +501,7 @@ body { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; 
         <span id="restaurantInfo">--</span>
         <span class="sep">·</span>
         <span id="restaurantIndexInfo">--</span>
+        <button class="reorder-btn" onclick="openReorderModal()">⇅ 调整顺序</button>
       </div>
     </div>
 
@@ -530,7 +552,8 @@ body { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; 
         <span class="fifo-section-title">⚠ FIFO 违规汇总（本线路）</span>
         <div>
           <button class="btn btn-ghost btn-sm" style="font-size:12px;padding:4px 10px;margin-right:6px;" onclick="exportFifoCsvDriver()">导出 CSV</button>
-          <button class="btn btn-ghost btn-sm" id="fifoScopeBtn" style="font-size:12px;padding:4px 10px;" onclick="toggleFifoScope()">查看全部线路</button>
+          <button class="btn btn-ghost btn-sm" id="fifoScopeBtn" style="font-size:12px;padding:4px 10px;margin-right:6px;" onclick="toggleFifoScope()">查看全部线路</button>
+          <button class="btn btn-primary btn-sm" style="font-size:12px;padding:4px 10px;" onclick="exportSpotCheckXls()">导出抽查差异</button>
         </div>
       </div>
       <div id="fifoSummaryList" class="fifo-summary-list"></div>
@@ -565,7 +588,7 @@ body { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; 
     </div>
     <div class="modal-row">
       <div class="modal-label">备注（可选）</div>
-      <textarea class="modal-note-input" id="modalNoteInput" rows="2" placeholder="例如：包装破损 / 客户说不要了"></textarea>
+      <textarea class="modal-note-input" id="modalNoteInput" rows="2" maxlength="80" placeholder="例如：包装破损 / 客户说不要了"></textarea>
     </div>
     <div class="modal-btns">
       <button class="btn btn-ghost" onclick="closeShortageModal()">取消</button>
@@ -591,15 +614,56 @@ body { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; 
   </div>
 </div>
 
-<!-- 管理员密码弹窗 -->
-<div class="modal-overlay" id="pwdModal" style="display:none;">
+<!-- 管理员解锁已统一改用系统 prompt（见 promptAdminUnlock），原独立弹窗已移除 -->
+
+<!-- ============ 库存查询弹窗（抽检模式：点 📦 徽章） ============ -->
+<div class="modal-overlay" id="invQueryModal" style="display:none;">
   <div class="modal-sheet">
-    <div class="modal-title">管理抽检模式</div>
-    <div class="modal-sub">请输入管理员密码进入批次抽检</div>
-    <input type="password" id="pwdInput" class="modal-qty-input" placeholder="管理员密码" style="height:48px;">
+    <div class="modal-title">库存查询</div>
+    <div class="modal-sub">输入商品编码，查询仓库批次库存（双击结果可记录实际盘点）</div>
+    <input id="invQueryInput" class="modal-qty-input" placeholder="如 86110551" onkeydown="if(event.key==='Enter')doInvQuery()">
+    <div id="invQueryResult" class="inv-query-result"></div>
     <div class="modal-btns">
-      <button class="btn btn-ghost" onclick="closePwdModal()">取消</button>
-      <button class="btn btn-primary" onclick="submitPwd()">进入</button>
+      <button class="btn btn-ghost" onclick="closeInvQuery()">关闭</button>
+      <button class="btn btn-primary" onclick="doInvQuery()">查询</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 库存盘点备注弹窗（双击结果打开） ============ -->
+<div id="invNoteModal" style="display:none;">
+  <div class="modal-sheet">
+    <div class="modal-title">库存盘点备注</div>
+    <div class="modal-sub" id="invNoteSku"></div>
+    <div class="inv-note-sys">系统库存：<b id="invNoteSys"></b></div>
+    <input id="invNoteActual" class="modal-qty-input" type="number" inputmode="decimal" placeholder="实际盘点数量">
+    <textarea id="invNoteText" class="modal-note-input" placeholder="如：实物 6 箱，系统显示 8 箱，差 2 箱" maxlength="120"></textarea>
+    <div class="modal-btns">
+      <button class="btn btn-ghost" onclick="closeInvNote()">取消</button>
+      <button class="btn btn-primary" onclick="saveInvNote()">保存记录</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 备注查看弹窗（只读） ============ -->
+<div class="modal-overlay" id="viewNoteModal" style="display:none;">
+  <div class="modal-sheet">
+    <div class="modal-title">备注</div>
+    <div class="modal-note-box" id="viewNoteText"></div>
+    <div class="modal-btns">
+      <button class="btn btn-primary" onclick="closeViewNote()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 卸货顺序调整弹窗 ============ -->
+<div class="modal-overlay" id="reorderModal" style="display:none;">
+  <div class="modal-sheet">
+    <div class="modal-title">调整卸货顺序</div>
+    <div class="modal-sub">↑ / ↓ 调整每家餐厅的卸货先后</div>
+    <div id="reorderList" class="reorder-list"></div>
+    <div class="modal-btns">
+      <button class="btn btn-primary" onclick="closeReorderModal()">完成</button>
     </div>
   </div>
 </div>
@@ -607,8 +671,14 @@ body { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; 
 <script>
 // ==================== 数据层 ====================
 const STORAGE_KEY = 'delivery_orders';
+const INVENTORY_NOTES_KEY = 'delivery_inventory_notes';
+window.__invNotes = {};
 
 function getOrders() {
+  try {
+    const raw = localStorage.getItem(INVENTORY_NOTES_KEY);
+    if (raw) window.__invNotes = JSON.parse(raw) || {};
+  } catch(e) { window.__invNotes = {}; }
   try {
     const data = localStorage.getItem(STORAGE_KEY);
     return data ? JSON.parse(data) : [];
@@ -664,6 +734,7 @@ let actualQtyCtx = { itemIndex: null, maxQty: 0 };
 let INVENTORY = null;          // {bySku:{sku:{name,batches:[{date,qty}]}}}
 let ADMIN_PWD = '1234';        // 管理抽检模式密码
 let inspectMode = false;       // 是否处于抽检模式
+let routeLock = false;        // 司机扫码进入（?route=）后锁定，只能看该线路，需管理员解锁
 let batchCtx = { idx: null };  // 批次错误弹窗上下文
 const FIFO_COLORS = { mild:'#8B5CF6', moderate:'#F59E0B', severe:'#F97316', critical:'#BE123C' };
 
@@ -791,12 +862,19 @@ function loadFromGist(gistId) {
 
 // 处理数据（公共逻辑）
 function processGistData(data, gistId) {
+  const existingOrders = getOrders();
   if (Array.isArray(data)) {
-    saveOrders(data);
+    // 合并进度：用 Gist 最新数据，但保留本机已点货状态（避免重新扫码丢进度）
+    const merged = data.map(nd => {
+      const ex = existingOrders.find(o => o.id === nd.id);
+      return ex ? Object.assign({}, nd, { progress: ex.progress }) : nd;
+    });
+    saveOrders(merged);
   } else if (data && data.restaurants) {
-    const orders = getOrders();
+    const orders = existingOrders.slice();
     const exists = orders.findIndex(o => o.id === data.id);
-    if (exists === -1) orders.unshift(data); else orders[exists] = data;
+    const keepProgress = exists !== -1 ? orders[exists].progress : data.progress;
+    if (exists === -1) orders.unshift(data); else orders[exists] = Object.assign({}, data, { progress: keepProgress });
     saveOrders(orders);
   } else {
     throw new Error('数据格式无效');
@@ -812,20 +890,44 @@ function processGistData(data, gistId) {
   const routeParam = new URLSearchParams(window.location.search).get('route');
   if (routeParam) {
     const target = getOrders().find(o => o.route === routeParam);
-    if (target) { loadOrder(target); return; }
+    if (target) { routeLock = true; loadOrder(target); return; }
+    showRouteError();   // 二维码线路号与 Gist 数据不匹配
+    return;
   }
 
   showPage('page-search');
   showToast('✅ 数据加载完成');
 }
 
+function showRouteError() {
+  const titleEl = document.querySelector('.search-title');
+  const subEl = document.querySelector('.search-subtitle');
+  if (titleEl) titleEl.textContent = '二维码错误';
+  if (subEl) subEl.innerHTML = '这张码对应的线路号和配送数据不匹配，请联系管理员重新扫码 😢';
+  showPage('page-search');
+}
+
 function showJokeExpired(gistId) {
   const titleEl = document.querySelector('.search-title');
   const subEl = document.querySelector('.search-subtitle');
   if (titleEl) titleEl.textContent = '数据已清理';
-  if (subEl) subEl.innerHTML = '嘿，你这单送得也太晚了吧～数据到点自动清理了，明天重新扫码哈😉';
+  var localBtn = getOrders().length > 0 ? '<br><button onclick="continueWithLocal()" style="margin-top:10px;padding:8px 20px;background:#fff;color:var(--c-primary);border:1px solid var(--c-primary);border-radius:6px;font-size:14px;">使用本机缓存继续</button>' : '';
+  if (subEl) subEl.innerHTML = '嘿，你这单送得也太晚了吧～数据到点自动清理了，明天重新扫码哈😉' + localBtn;
   showPage('page-search');
 }
+// 使用本机已缓存的送货单继续（Gist 拉取失败时兜底）
+function continueWithLocal() {
+  const orders = getOrders();
+  if (!orders.length) { showToast('本机没有可继续的送货单'); return; }
+  const titleEl = document.querySelector('.search-title');
+  const subEl = document.querySelector('.search-subtitle');
+  if (titleEl) titleEl.textContent = '本机缓存';
+  if (subEl) subEl.innerHTML = '已载入本机缓存的 ' + orders.length + ' 条送货单，可继续点货';
+  showPage('page-search');
+  if (typeof renderRecentList === 'function') renderRecentList();
+  showToast('已使用本机缓存数据');
+}
+
 // 显示错误 + 重试按钮
 function showErrorWithRetry(msg, gistId) {
   const titleEl = document.querySelector('.search-title');
@@ -834,7 +936,8 @@ function showErrorWithRetry(msg, gistId) {
   var retryAction = gistId
     ? "loadFromGist('" + gistId + "')"
     : "loadFromRepo()";
-  if (subEl) subEl.innerHTML = '⚠️ ' + msg + '<br><button onclick="' + retryAction + '" style="margin-top:10px;padding:8px 20px;background:var(--c-primary);color:#fff;border:none;border-radius:6px;font-size:14px;">重新加载</button>';
+  var localBtn = getOrders().length > 0 ? '<br><button onclick="continueWithLocal()" style="margin-top:10px;padding:8px 20px;background:#fff;color:var(--c-primary);border:1px solid var(--c-primary);border-radius:6px;font-size:14px;">使用本机缓存继续</button>' : '';
+  if (subEl) subEl.innerHTML = '⚠️ ' + msg + '<br><button onclick="' + retryAction + '" style="margin-top:10px;padding:8px 20px;background:var(--c-primary);color:#fff;border:none;border-radius:6px;font-size:14px;">重新加载</button>' + localBtn;
   showPage('page-search');
 }
 
@@ -950,6 +1053,13 @@ function loadOrder(order) {
     order.restaurants.forEach(r => {
       if (!order.progress.restaurantItems[r.id]) order.progress.restaurantItems[r.id] = {};
     });
+    // 套用本机保存的卸货顺序（仅排序，餐厅数据仍以 Gist 为准）
+    if (order.progress.restaurantOrder && order.progress.restaurantOrder.length) {
+      const m = {}; order.restaurants.forEach(r => m[r.id] = r);
+      const re = order.progress.restaurantOrder.map(id => m[id]).filter(Boolean);
+      order.restaurants.forEach(r => { if (order.progress.restaurantOrder.indexOf(r.id) === -1) re.push(r); });
+      if (re.length === order.restaurants.length) order.restaurants = re;
+    }
   }
   app.currentIdx = (typeof order.progress.currentRestaurantIndex === 'number'
     && order.progress.currentRestaurantIndex < (order.restaurants ? order.restaurants.length : 0))
@@ -959,6 +1069,7 @@ function loadOrder(order) {
 }
 
 function goToSearch() {
+  if (routeLock) { showToast('已锁定本线路，需长按返回键解锁'); return; }
   showPage('page-search');
   document.getElementById('orderListResult').innerHTML = '';
   document.getElementById('orderInput').value = '';
@@ -1021,6 +1132,17 @@ function renderCheckPage() {
   document.getElementById('currentRestaurant').textContent = r.name;
   document.getElementById('restaurantInfo').textContent = '停靠 ' + (r.stop || '--') + ' · ' + (r.code || '');
   document.getElementById('restaurantIndexInfo').textContent = '第 ' + (app.currentIdx + 1) + ' / ' + total + ' 家餐厅';
+  // 全线进度
+  let rt = 0, rd = 0;
+  order.restaurants.forEach(rest => {
+    const ri = rest.items || []; rt += ri.length;
+    const rm = getRestaurantItems(rest.id);
+    ri.forEach((it, k) => { const st = rm[k]; if (st && (st.status==='done'||st.status==='shortage'||st.status==='overage'||st.status==='batcherror')) rd++; });
+  });
+  const rpct = rt > 0 ? Math.round(rd/rt*100) : 0;
+  let rp = document.getElementById('routeProgress');
+  if (!rp) { rp = document.createElement('div'); rp.id = 'routeProgress'; rp.style.cssText = 'font-size:12px;color:#666;margin-top:2px;'; document.getElementById('restaurantIndexInfo').after(rp); }
+  rp.textContent = '全线 ' + rd + '/' + rt + ' 已点 (' + rpct + '%)';
 
   // 统计
   let doneCount = 0, shortageCount = 0, overageCount = 0, batchErrCount = 0;
@@ -1084,9 +1206,9 @@ function renderCheckPage() {
         statusClass += ' unchecked'; statusIcon = '';
       }
 
-      // 备注标记
+      // 备注标记（点击查看完整备注）
       if (state.note) {
-        extraHTML += `<div class="note-tag">📝 ${esc(state.note)}</div>`;
+        extraHTML += `<div class="note-tag" onclick="event.stopPropagation();viewNote(${it.idx})">📝 ${esc(state.note)}</div>`;
       }
 
       // 生产日期格式化
@@ -1158,7 +1280,8 @@ function fifoLevelForItem(item) {
   const diffDays = Math.round((d - earliest) / 86400000);
   if (diffDays <= 0) return null; // 送货单日期≤库存最早=正常
   const level = diffDays <= 7 ? 'mild' : diffDays <= 15 ? 'moderate' : diffDays <= 30 ? 'severe' : 'critical';
-  return { level, diffDays };
+  const invDate = new Date(earliest).toISOString().slice(0, 10);
+  return { level, diffDays, invDate };
 }
 
 // ==================== 搜索定位 ====================
@@ -1214,7 +1337,7 @@ function bindLongPressInspect() {
   if (!h1 || h1._lpBound) return;
   h1._lpBound = true;
   h1.style.userSelect = 'none';
-  const start = () => { if (lpTimer) return; lpTimer = setTimeout(() => { lpTimer = null; promptInspectPassword(); }, 1500); };
+  const start = () => { if (lpTimer) return; lpTimer = setTimeout(() => { lpTimer = null; promptAdminUnlock(); }, 1500); };
   const cancel = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
   h1.addEventListener('touchstart', start, { passive: true });
   h1.addEventListener('touchend', cancel);
@@ -1226,19 +1349,7 @@ function bindLongPressInspect() {
 }
 let lpTimer = null;
 
-function promptInspectPassword() {
-  if (inspectMode) { setInspect(false); return; }
-  document.getElementById('pwdInput').value = '';
-  document.getElementById('pwdInput').style.borderColor = '';
-  document.getElementById('pwdModal').style.display = 'flex';
-  setTimeout(() => document.getElementById('pwdInput').focus(), 100);
-}
-function closePwdModal() { document.getElementById('pwdModal').style.display = 'none'; }
-function submitPwd() {
-  const v = document.getElementById('pwdInput').value;
-  if (v === ADMIN_PWD) { closePwdModal(); setInspect(true); }
-  else { document.getElementById('pwdInput').style.borderColor = 'var(--c-danger)'; showToast('密码错误'); }
-}
+// 管理员密码输入已统一为系统 prompt（见 promptAdminUnlock），以下原弹窗函数已废弃
 function setInspect(on) {
   inspectMode = on;
   if (on) loadInventoryLocal();   // 进入抽检时确保库存就绪（本地模拟/无Gist库存时从本地缓存取）
@@ -1261,6 +1372,9 @@ function setInspect(on) {
       pill.after(invD);
     }
     invD.textContent = _ic > 0 ? ('📦 ' + _ic + ' SKU') : '⚠ 无库存数据';
+    invD.style.cursor = 'pointer';
+    invD.title = '点击查询在库库存';
+    invD.onclick = () => openInventoryQuery();
     showToast('已进入抽检模式 · 库存 ' + (_ic > 0 ? _ic + ' 个SKU' : '未加载 ⚠'));
   } else {
     if (pill) pill.remove();
@@ -1285,6 +1399,112 @@ function setInspect(on) {
   setTimeout(() => { if (inspectMode === on && app && app.order) forceRender('t+50'); }, 50);
   setTimeout(() => { if (inspectMode === on && app && app.order) forceRender('t+300'); }, 300);
   setTimeout(() => { if (inspectMode === on && app && app.order) forceRender('t+600'); }, 600);
+}
+
+// ==================== 库存查询（抽检模式，点 📦 徽章） ====================
+function openInventoryQuery() {
+  if (!INVENTORY || !INVENTORY.bySku) { showToast('未加载库存'); return; }
+  document.getElementById('invQueryInput').value = '';
+  document.getElementById('invQueryResult').innerHTML = '';
+  document.getElementById('invQueryModal').style.display = 'flex';
+  setTimeout(() => { try { document.getElementById('invQueryInput').focus(); } catch(e){} }, 100);
+}
+function closeInvQuery() { document.getElementById('invQueryModal').style.display = 'none'; }
+function doInvQuery() {
+  const code = (document.getElementById('invQueryInput').value || '').trim();
+  const el = document.getElementById('invQueryResult');
+  if (!code) { el.innerHTML = ''; return; }
+  const rec = INVENTORY.bySku[String(code).trim()];
+  if (!rec || !rec.batches || !rec.batches.length) { el.innerHTML = '<div class="inv-empty">未找到该编码的库存</div>'; return; }
+  const total = rec.batches.reduce((s, b) => s + (Number(b.qty) || 0), 0);
+  let h = '<div class="inv-q-name">' + esc(rec.name || code) + '</div>';
+  h += '<div class="inv-q-code">编码：' + esc(String(code).trim()) + '</div>';
+  h += '<div class="inv-q-batches">系统总库存：' + total + ' ' + esc((rec.batches[0].unit||'')) + ' · 最早批次：' + esc(rec.batches.slice().sort((a,b)=>a.date.localeCompare(b.date))[0].date) + '</div>';
+  h += '<div class="inv-q-list">';
+  rec.batches.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(b => {
+    h += '<div class="inv-batch"><span>' + esc(b.date) + '</span><span>共 ' + (b.qty||0) + ' ' + esc(b.unit||'') + '</span></div>';
+  });
+  h += '</div>';
+  const note = window.__invNotes && window.__invNotes[String(code).trim()];
+  if (note) h += '<div class="inv-note-saved">📝 已记录：' + esc((note.actual!==''&&note.actual!=null?('实际 '+note.actual+' / '):'')) + esc(note.note || '') + '</div>';
+  h += '<div class="inv-q-hint">双击上方结果可快速填入「实际盘点库存 / 备注」</div>';
+  el.innerHTML = h;
+  el.ondblclick = () => openInvNote(code, rec.name || code, total);
+}
+
+function openInvNote(code, name, systemStock) {
+  code = String(code).trim();
+  window.__invNoteCode = code;
+  document.getElementById('invNoteSku').textContent = (name || code) + '  ·  ' + code;
+  document.getElementById('invNoteSys').textContent = (systemStock==null||systemStock===''?'—':systemStock);
+  const note = window.__invNotes && window.__invNotes[code];
+  document.getElementById('invNoteActual').value = note ? (note.actual===''||note.actual==null?'':note.actual) : '';
+  document.getElementById('invNoteText').value = note ? (note.note||'') : '';
+  document.getElementById('invNoteModal').style.display = 'flex';
+  setTimeout(() => { try { document.getElementById('invNoteActual').focus(); } catch(e){} }, 80);
+}
+function closeInvNote() { document.getElementById('invNoteModal').style.display = 'none'; }
+
+function saveInvNote() {
+  if (!inspectMode) { showToast('仅抽检模式可记录库存盘点'); return; }
+  const code = window.__invNoteCode;
+  if (!code) { showToast('请先查询并双击要记录的编码'); return; }
+  const actual = document.getElementById('invNoteActual').value.trim();
+  const note = document.getElementById('invNoteText').value.trim();
+  if (!actual && !note) { showToast('请填写实际库存或备注'); return; }
+  if (!window.__invNotes) window.__invNotes = {};
+  window.__invNotes[code] = {
+    sku: code,
+    name: (document.getElementById('invNoteSku').textContent.split('  ·  ')[0] || ''),
+    systemStock: (document.getElementById('invNoteSys').textContent==='—'?'':document.getElementById('invNoteSys').textContent),
+    actual: actual,
+    note: note,
+    ts: Date.now()
+  };
+  try { localStorage.setItem('delivery_inventory_notes', JSON.stringify(window.__invNotes)); } catch(e){}
+  closeInvNote();
+  showToast('已保存库存盘点记录 📝');
+  doInvQuery();
+}
+
+// ==================== 备注查看（只读） ====================
+function viewNote(idx) {
+  const r = getCurrentRestaurant();
+  if (!r) return;
+  const checkedMap = getRestaurantItems(r.id);
+  const st = checkedMap[idx];
+  if (!st || !st.note) return;
+  document.getElementById('viewNoteText').textContent = st.note;
+  document.getElementById('viewNoteModal').style.display = 'flex';
+}
+function closeViewNote() { document.getElementById('viewNoteModal').style.display = 'none'; }
+
+// ==================== 卸货顺序调整 ====================
+function openReorderModal() {
+  const order = app.order;
+  if (!order || !order.restaurants) return;
+  const list = document.getElementById('reorderList');
+  list.innerHTML = '';
+  order.restaurants.forEach((r, i) => {
+    const div = document.createElement('div');
+    div.className = 'reorder-item';
+    div.innerHTML = '<span class="reorder-name">' + esc(r.name) + '</span>'
+      + '<span class="reorder-idx">' + (i + 1) + '</span>'
+      + '<span class="reorder-btns">' + (i > 0 ? '<button onclick="moveRestaurant(' + i + ',-1)">↑</button>' : '') + (i < order.restaurants.length - 1 ? '<button onclick="moveRestaurant(' + i + ',1)">↓</button>' : '') + '</span>';
+    list.appendChild(div);
+  });
+  document.getElementById('reorderModal').style.display = 'flex';
+}
+function closeReorderModal() { document.getElementById('reorderModal').style.display = 'none'; }
+function moveRestaurant(idx, dir) {
+  const arr = app.order.restaurants;
+  const ni = idx + dir;
+  if (ni < 0 || ni >= arr.length) return;
+  const tmp = arr[idx]; arr[idx] = arr[ni]; arr[ni] = tmp;
+  if (!app.order.progress) app.order.progress = {};
+  app.order.progress.restaurantOrder = arr.map(r => r.id);  // 仅存顺序，数据仍以 Gist 为准
+  saveProgress();
+  openReorderModal();
 }
 
 // ==================== 批次错误标记 ====================
@@ -1374,15 +1594,19 @@ function doToggleConfirm(itemIndex) {
   const checkedMap = getRestaurantItems(r.id);
   const current = checkedMap[itemIndex];
 
+  const keepNote = current ? current.note : undefined;
   if (current && current.status === 'done') {
     // 已确认 → 取消
     delete checkedMap[itemIndex];
   } else if (current && current.status === 'shortage') {
-    // 缺货 → 已确认
-    checkedMap[itemIndex] = { status: 'done', timestamp: Date.now() };
+    // 缺货 → 已确认（保留备注）
+    checkedMap[itemIndex] = { status: 'done', actualQty: current.actualQty, note: keepNote, timestamp: Date.now() };
+  } else if (current && current.status === 'batcherror') {
+    // 批次错误标记：普通点击不清除，保持原状（仍显示洋红）
+    checkedMap[itemIndex] = { status: 'batcherror', actualDate: current.actualDate, note: keepNote, timestamp: Date.now() };
   } else {
-    // 未处理 → 已确认
-    checkedMap[itemIndex] = { status: 'done', timestamp: Date.now() };
+    // 未处理 → 已确认（保留备注）
+    checkedMap[itemIndex] = { status: 'done', actualQty: current ? current.actualQty : undefined, note: keepNote, timestamp: Date.now() };
   }
 
   saveProgress();
@@ -1457,7 +1681,10 @@ function confirmActualQty() {
   else if (qty > it.quantity) status = 'overage';
   
   const noteVal = (document.getElementById('modalNoteInput').value || '').trim();
-  checkedMap[actualQtyCtx.itemIndex] = { status: status, actualQty: qty, note: noteVal, timestamp: Date.now() };
+  const _ex = checkedMap[actualQtyCtx.itemIndex];
+  const keepBatch = _ex ? (_ex.batcherror || _ex.status === 'batcherror') : undefined;
+  const keepActualDate = _ex ? _ex.actualDate : undefined;
+  checkedMap[actualQtyCtx.itemIndex] = { status: status, actualQty: qty, note: noteVal, batcherror: keepBatch, actualDate: keepActualDate, timestamp: Date.now() };
   closeShortageModal();
   saveProgress();
   renderCheckPage();
@@ -1470,11 +1697,39 @@ document.addEventListener('DOMContentLoaded', () => {
     input.addEventListener('keydown', e => { if (e.key === 'Enter') confirmActualQty(); });
   }
   bindLongPressInspect();
+  bindBackLongPress();
   // ESC关闭弹窗
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeShortageModal(); closeBatchModal(); closePwdModal(); }
+    if (e.key === 'Escape') { closeShortageModal(); closeBatchModal(); }
   });
 });
+
+function bindBackLongPress() {
+  const btn = document.getElementById('backBtn');
+  if (!btn || btn._blpBound) return;
+  btn._blpBound = true;
+  let t = null;
+  const start = () => { if (t) return; t = setTimeout(() => { t = null; promptAdminUnlock(); }, 1500); };
+  const cancel = () => { if (t) { clearTimeout(t); t = null; } };
+  btn.addEventListener('touchstart', start, { passive: true });
+  btn.addEventListener('touchend', cancel);
+  btn.addEventListener('touchcancel', cancel);
+  btn.addEventListener('mousedown', start);
+  btn.addEventListener('mouseup', cancel);
+  btn.addEventListener('mouseleave', cancel);
+}
+
+function promptAdminUnlock() {
+  const v = prompt('管理员模式：输入密码后，可自由选择线路并开启 FIFO / 库存查询 / 导出等抽检工具');
+  if (v === null) return;
+  if (v === ADMIN_PWD) {
+    routeLock = false;        // 解锁线路：返回键/线路按钮可自由选线
+    setInspect(true);         // 同时开启抽检模式：FIFO/库存/导出全部可见
+    showToast('已进入管理员模式：可自由切换线路，抽检工具已开启');
+  } else {
+    showToast('密码错误');
+  }
+}
 
 function saveProgress() {
   app.order.progress.currentRestaurantIndex = app.currentIdx;
@@ -1629,6 +1884,76 @@ function downloadFile(name, content) {
   document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
+function downloadXls(name, html) {
+  const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+// 抽检模式：汇总所有双击备注过的有差异项（送货单抽检 + 库存查询抽检）导出 Excel
+function exportSpotCheckXls() {
+  if (!inspectMode) { showToast('仅抽检模式可导出'); return; }
+  const today = new Date();
+  const y = today.getFullYear(), m = String(today.getMonth()+1).padStart(2,'0'), d = String(today.getDate()).padStart(2,'0');
+  const todayStr = y + '-' + m + '-' + d;
+  const lvName = { critical:'严重', severe:'橙', moderate:'琥珀', mild:'紫' };
+  const rows = [];
+  // 1) 送货单抽检：本机所有订单中带备注或异常状态的品项
+  getOrders().forEach(o => {
+    const route = o.route;
+    (o.restaurants || []).forEach(r => {
+      const rm = (o.progress && o.progress.restaurantItems && o.progress.restaurantItems[r.id]) || {};
+      (r.items || []).forEach((it, idx) => {
+        const st = rm[idx];
+        if (!st) return;
+        const isFlag = st.status === 'shortage' || st.status === 'overage' || st.status === 'batcherror';
+        if (st.note || isFlag) {
+          const ts = st.timestamp ? new Date(st.timestamp) : null;
+          const tstr = ts ? (ts.getFullYear()+'-'+String(ts.getMonth()+1).padStart(2,'0')+'-'+String(ts.getDate()).padStart(2,'0')) : '';
+          rows.push({ type:'送货单抽检', date:tstr, route, place:r.name||'', sku:it.code, name:it.name,
+            sys: it.quantity!=null?it.quantity:'', actual: st.actualQty!=null?st.actualQty:'',
+            status: st.status==='shortage'?'缺货':st.status==='overage'?'多货':st.status==='batcherror'?'批次错误':'已备注', note: st.note||'' });
+        }
+      });
+    });
+  });
+  // 2) 库存查询抽检：管理员在库盘点备注
+  const inv = window.__invNotes || {};
+  Object.keys(inv).forEach(sku => {
+    const n = inv[sku];
+    const ts = n.ts ? new Date(n.ts) : null;
+    const tstr = ts ? (ts.getFullYear()+'-'+String(ts.getMonth()+1).padStart(2,'0')+'-'+String(ts.getDate()).padStart(2,'0')) : '';
+    rows.push({ type:'库存查询抽检', date:tstr, route:'', place:'仓库抽查', sku, name:n.name||'',
+      sys: n.systemStock!=null&&n.systemStock!==''?n.systemStock:'', actual: n.actual!=null&&n.actual!==''?n.actual:'',
+      status:'库存抽查', note:(n.note||'') });
+  });
+  if (!rows.length) { showToast('今天还没有抽查差异记录'); return; }
+  // 仅保留今天的记录（按记录日期）
+  const todayRows = rows.filter(r => !r.date || r.date === todayStr);
+  const useRows = todayRows.length ? todayRows : rows;
+  let html = '<meta charset="UTF-8"><table border="1" cellspacing="0" cellpadding="4">'
+    + '<tr><th>类型</th><th>记录日期</th><th>线路</th><th>餐厅/地点</th><th>编码</th><th>品名</th><th>系统量</th><th>实盘量</th><th>状态</th><th>备注</th></tr>';
+  useRows.forEach(r => {
+    html += '<tr>'
+      + '<td>'+esc(r.type)+'</td>'
+      + '<td>'+esc(r.date)+'</td>'
+      + '<td>'+esc(r.route)+'</td>'
+      + '<td>'+esc(r.place)+'</td>'
+      + '<td>'+esc(r.sku)+'</td>'
+      + '<td>'+esc(r.name)+'</td>'
+      + '<td>'+esc(r.sys)+'</td>'
+      + '<td>'+esc(r.actual)+'</td>'
+      + '<td>'+esc(r.status)+'</td>'
+      + '<td>'+esc(r.note)+'</td>'
+      + '</tr>';
+  });
+  html += '</table>';
+  downloadXls('抽查差异汇总_' + todayStr + '.xls', html);
+  showToast('已导出 ' + useRows.length + ' 条差异（今天）');
+}
+
 function exportFifoCsvDriver() {
   const orders = getOrders();
   if (!orders.length) { showToast('无订单数据'); return; }
@@ -1639,15 +1964,15 @@ function exportFifoCsvDriver() {
     (o.restaurants || []).forEach(r => {
       (r.items || []).forEach(it => {
         const f = fifoLevelForItem(it);
-        if (f) rows.push({ route: o.route, stop: r.stop, rname: r.name, code: it.code, name: it.name, level: f.level, diff: f.diffDays, invDate: f.invDate, prod: it.productionDate });
+        if (f) rows.push({ route: o.route, stop: r.stop, rcode: r.code, rname: r.name, code: it.code, name: it.name, level: f.level, diff: f.diffDays, invDate: f.invDate, prod: it.productionDate });
       });
     });
   });
-  rows.sort((a, b) => lvOrder[a.level] - lvOrder[b.level]);
+  rows.sort((a, b) => lvOrder[a.level] - lvOrder[b.level] || String(a.route).localeCompare(String(b.route)));
   if (!rows.length) { showToast('本线路未检出 FIFO 违规'); return; }
-  let csv = '级别,线路号,停靠,餐厅,品项编码,品名,晚X天,库存最早日期,送货单日期\n';
+  let csv = '级别,线路号,停靠,餐厅编码,餐厅,品项编码,品名,晚X天,库存最早日期,送货单日期\n';
   rows.forEach(v => {
-    const cells = [lvNameCsv[v.level], v.route, v.stop || '', csvCell(v.rname), csvCell(String(v.code || '')), csvCell(v.name || ''), v.diff, v.invDate || '', v.prod || ''];
+    const cells = [lvNameCsv[v.level], v.route, v.stop || '', csvCell(String(v.rcode || '')), csvCell(v.rname), csvCell(String(v.code || '')), csvCell(v.name || ''), v.diff, v.invDate || '', v.prod || ''];
     csv += cells.join(',') + '\n';
   });
   downloadFile('FIFO违规_线路' + orders[0].route + '_' + new Date().toISOString().split('T')[0] + '.csv', csv);
@@ -1666,6 +1991,13 @@ function esc(s) {
   const div = document.createElement('div');
   div.textContent = String(s);
   return div.innerHTML;
+}
+
+// ==================== 离线缓存（Service Worker） ====================
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
 }
 
 </script>
