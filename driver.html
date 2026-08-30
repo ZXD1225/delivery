@@ -528,7 +528,10 @@ body { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; 
     <div id="fifoSection" style="display:none;margin-top:14px;">
       <div class="fifo-section-head">
         <span class="fifo-section-title">⚠ FIFO 违规汇总（本线路）</span>
-        <button class="btn btn-ghost btn-sm" id="fifoScopeBtn" style="font-size:12px;padding:4px 10px;" onclick="toggleFifoScope()">查看全部线路</button>
+        <div>
+          <button class="btn btn-ghost btn-sm" style="font-size:12px;padding:4px 10px;margin-right:6px;" onclick="exportFifoCsvDriver()">导出 CSV</button>
+          <button class="btn btn-ghost btn-sm" id="fifoScopeBtn" style="font-size:12px;padding:4px 10px;" onclick="toggleFifoScope()">查看全部线路</button>
+        </div>
       </div>
       <div id="fifoSummaryList" class="fifo-summary-list"></div>
     </div>
@@ -1592,7 +1595,7 @@ function renderFifoSummary() {
   const lvName = { critical: '🔴严重', severe: '🟠橙', moderate: '🟡琥珀', mild: '🟣紫' };
   let rows = [];
   orders.forEach(o => {
-    if (scopeAll === false && app.order && o.route !== app.order.route) return;
+    if (!scopeAll && app.order && o.route !== app.order.route) return;
     (o.restaurants || []).forEach(r => {
       (r.items || []).forEach(it => {
         const f = fifoLevelForItem(it);
@@ -1612,7 +1615,43 @@ function toggleFifoScope() {
   window._fifoScopeAll = !window._fifoScopeAll;
   const b = document.getElementById('fifoScopeBtn');
   if (b) b.textContent = window._fifoScopeAll ? '仅看本线路' : '查看全部线路';
+  const t = document.querySelector('.fifo-section-title');
+  if (t) t.textContent = window._fifoScopeAll ? '⚠ FIFO 违规汇总（全部线路）' : '⚠ FIFO 违规汇总（本线路）';
   renderFifoSummary();
+}
+// ==================== 司机端：导出本线路 FIFO 违规 CSV ====================
+function csvCell(s) { s = String(s == null ? '' : s); if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'; return s; }
+function downloadFile(name, content) {
+  const blob = new Blob(['﻿' + content], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+function exportFifoCsvDriver() {
+  const orders = getOrders();
+  if (!orders.length) { showToast('无订单数据'); return; }
+  const lvNameCsv = { critical: '严重', severe: '橙', moderate: '琥珀', mild: '紫' };
+  const lvOrder = { critical: 0, severe: 1, moderate: 2, mild: 3 };
+  let rows = [];
+  orders.forEach(o => {
+    (o.restaurants || []).forEach(r => {
+      (r.items || []).forEach(it => {
+        const f = fifoLevelForItem(it);
+        if (f) rows.push({ route: o.route, stop: r.stop, rname: r.name, code: it.code, name: it.name, level: f.level, diff: f.diffDays, invDate: f.invDate, prod: it.productionDate });
+      });
+    });
+  });
+  rows.sort((a, b) => lvOrder[a.level] - lvOrder[b.level]);
+  if (!rows.length) { showToast('本线路未检出 FIFO 违规'); return; }
+  let csv = '级别,线路号,停靠,餐厅,品项编码,品名,晚X天,库存最早日期,送货单日期\n';
+  rows.forEach(v => {
+    const cells = [lvNameCsv[v.level], v.route, v.stop || '', csvCell(v.rname), csvCell(String(v.code || '')), csvCell(v.name || ''), v.diff, v.invDate || '', v.prod || ''];
+    csv += cells.join(',') + '\n';
+  });
+  downloadFile('FIFO违规_线路' + orders[0].route + '_' + new Date().toISOString().split('T')[0] + '.csv', csv);
+  showToast('已导出 ' + rows.length + ' 项 FIFO 违规');
 }
 function jumpToRestaurant(idx) {
   app.currentIdx = idx;
