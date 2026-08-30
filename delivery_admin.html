@@ -802,7 +802,7 @@ async function uploadToGist() {
   if (!token) { statusEl.textContent = '⚠️ 请输入 GitHub Personal Access Token'; return; }
   const orders = getOrders();
   if (orders.length === 0) { statusEl.textContent = '⚠️ 没有可上传的数据'; return; }
-  statusEl.textContent = '🔄 正在为 ' + orders.length + ' 条线路创建独立 Gist（重复线路自动覆盖旧数据）...';
+
   const today = new Date();
   const validDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 18, 0, 0);
   validDate.setDate(validDate.getDate() + 1);
@@ -818,45 +818,77 @@ async function uploadToGist() {
 
   const headers = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
   const results = [];
-  let pending = orders.length + 1; // +1 给总码 Gist
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const DELAY = 250; // 串行间隔 ms，避开 GitHub 写接口限流
 
-  const done = () => { if (--pending === 0) finishDeploy(results, token, statusEl, gistMap); };
-
-  // === 总码 Gist：先删旧再建新 ===
-  if (gistMap.__master) {
-    try { await fetch('https://api.github.com/gists/' + gistMap.__master, { method: 'DELETE', headers }); } catch (e) {}
+  // 静默删除（404 = 已删，不报错）
+  async function delGistSilent(id) {
+    if (!id) return;
+    try { await fetch('https://api.github.com/gists/' + id, { method: 'DELETE', headers }); } catch (e) { /* 静默 */ }
   }
-  const masterFiles = {};
-  masterFiles['delivery-all.json'] = { content: JSON.stringify(orders) };
-  if (invContent) masterFiles['inventory.json'] = { content: invContent };
-  masterFiles['meta.json'] = { content: JSON.stringify({ isMaster: true, date: dateStr, validUntil: validUntil, count: orders.length }) };
-  fetch('https://api.github.com/gists', { method: 'POST', headers, body: JSON.stringify({ description: '送货单 总码 全部线路' + orders.length + '条 ' + dateStr + (invContent ? '（含库存）' : ''), public: false, files: masterFiles }) })
-    .then(r => r.json()).then(gist => {
-      if (gist.id) { gistMap.__master = gist.id; results.unshift({ route: '📦总码', id: gist.id, url: base + '?gist=' + gist.id, isMaster: true }); }
-      done();
-    }).catch(() => done());
 
-  // === 每条线路独立 Gist：先删该线路旧 Gist（若有），再建新 ===
-  orders.forEach(o => {
-    const route = String(o.route);
-    if (gistMap[route]) {
-      const oldId = gistMap[route];
-      fetch('https://api.github.com/gists/' + oldId, { method: 'DELETE', headers }).catch(() => {});
+  // === 1) 删总码旧 Gist ===
+  statusEl.textContent = '🗑️ 清理旧总码...';
+  await delGistSilent(gistMap.__master);
+  await sleep(DELAY);
+
+  // === 2) 创建总码 Gist ===
+  statusEl.textContent = '🔄 创建总码 Gist（0/' + (orders.length + 1) + '）...';
+  try {
+    const masterFiles = {};
+    masterFiles['delivery-all.json'] = { content: JSON.stringify(orders) };
+    if (invContent) masterFiles['inventory.json'] = { content: invContent };
+    masterFiles['meta.json'] = { content: JSON.stringify({ isMaster: true, date: dateStr, validUntil: validUntil, count: orders.length }) };
+    const r = await fetch('https://api.github.com/gists', { method: 'POST', headers, body: JSON.stringify({ description: '送货单 总码 全部线路' + orders.length + '条 ' + dateStr + (invContent ? '（含库存）' : ''), public: false, files: masterFiles }) });
+    const gist = await r.json();
+    if (gist.id) {
+      gistMap.__master = gist.id;
+      results.push({ route: '📦总码', id: gist.id, url: base + '?gist=' + gist.id, isMaster: true });
+    } else {
+      statusEl.textContent = '❌ 总码创建失败：' + (gist.message || '未知错误') + '（请检查 Token 与限流）';
+      return;
     }
-    const files = {};
-    files['delivery-' + route + '.json'] = { content: JSON.stringify([o]) };
-    if (invContent) files['inventory.json'] = { content: invContent };
-    files['meta.json'] = { content: JSON.stringify({ route: route, date: dateStr, validUntil: validUntil }) };
-    fetch('https://api.github.com/gists', { method: 'POST', headers, body: JSON.stringify({ description: '送货单 线路' + route + ' ' + dateStr + (invContent ? '（含库存）' : ''), public: false, files: files }) })
-      .then(r => r.json()).then(gist => {
-        if (gist.id) {
-          gistMap[route] = gist.id;
-          const url = base + '?gist=' + gist.id + '&route=' + encodeURIComponent(route);
-          results.push({ route: route, id: gist.id, url: url });
-        }
-        done();
-      }).catch(() => done());
-  });
+  } catch (e) {
+    statusEl.textContent = '❌ 网络错误：' + e.message;
+    return;
+  }
+  await sleep(DELAY);
+
+  // === 3) 逐条线路：删旧（若有）→ 建新（串行 + 进度）===
+  for (let i = 0; i < orders.length; i++) {
+    const o = orders[i];
+    const route = String(o.route);
+    const step = i + 1;
+    statusEl.textContent = '🔄 创建 ' + step + '/' + orders.length + '（线路 ' + route + '）...';
+
+    // 删该线路的旧 Gist（不影响其他线路）
+    await delGistSilent(gistMap[route]);
+    await sleep(80);
+
+    // 建新
+    try {
+      const files = {};
+      files['delivery-' + route + '.json'] = { content: JSON.stringify([o]) };
+      if (invContent) files['inventory.json'] = { content: invContent };
+      files['meta.json'] = { content: JSON.stringify({ route: route, date: dateStr, validUntil: validUntil }) };
+      const r = await fetch('https://api.github.com/gists', { method: 'POST', headers, body: JSON.stringify({ description: '送货单 线路' + route + ' ' + dateStr + (invContent ? '（含库存）' : ''), public: false, files: files }) });
+      const gist = await r.json();
+      if (gist.id) {
+        gistMap[route] = gist.id;
+        const url = base + '?gist=' + gist.id + '&route=' + encodeURIComponent(route);
+        results.push({ route: route, id: gist.id, url: url });
+      } else {
+        console.warn('线路 ' + route + ' 创建失败：' + (gist.message || '未知错误'));
+      }
+    } catch (e) {
+      console.warn('线路 ' + route + ' 网络错误：' + e.message);
+    }
+
+    if (i < orders.length - 1) await sleep(DELAY);
+  }
+
+  // === 4) 收尾 ===
+  finishDeploy(results, token, statusEl, gistMap);
 }
 function finishDeploy(results, token, statusEl, gistMap) {
   localStorage.setItem('gist_token', token);
