@@ -820,7 +820,7 @@ function loadFromGist(gistId) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-  fetch('https://api.github.com/gists/' + gistId, { signal: controller.signal })
+  fetch('https://api.github.com/gists/' + gistId, { signal: controller.signal, headers: buildAuthHeaders() })
     .then(r => {
       clearTimeout(timeoutId);
       if (!r.ok) throw new Error('Gist 加载失败 (' + r.status + ')' );
@@ -937,7 +937,40 @@ function showErrorWithRetry(msg, gistId) {
 }
 
 // ==================== 初始化 ====================
+// ========== Token 支持 ==========
+// 从 URL hash 或 query 读取 token 并存到 localStorage（QR 码嵌入的 token）
+function readTokenFromUrl() {
+  try {
+    // 先尝试 hash（#token=xxx）
+    const hash = window.location.hash || '';
+    const hashMatch = hash.match(/token=([^&]+)/);
+    if (hashMatch) {
+      const t = decodeURIComponent(hashMatch[1]);
+      if (t && t.startsWith('ghp_')) {
+        localStorage.setItem('gist_token', t);
+        return true;
+      }
+    }
+    // 再尝试 query（?token=xxx）
+    const params = new URLSearchParams(window.location.search);
+    const qt = params.get('token');
+    if (qt && qt.startsWith('ghp_')) {
+      localStorage.setItem('gist_token', qt);
+      return true;
+    }
+  } catch(e) {}
+  return false;
+}
+
+// 构造带 Authorization 的请求头
+function buildAuthHeaders() {
+  const token = localStorage.getItem('gist_token');
+  return token ? { 'Authorization': 'Bearer ' + token } : {};
+}
+
 (function initFromUrl() {
+  // 先从 URL 提取 token（如果是 QR 扫码进来的）
+  readTokenFromUrl();
   // 启动时尝试从本地缓存加载库存（Gist 优先；已有则不覆盖）
   loadInventoryLocal();
   // 优先检查 Gist 参数（旧方式，保留兼容）

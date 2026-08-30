@@ -898,7 +898,18 @@ async function uploadToGist() {
       const gist = await r.json();
       if (gist.id) {
         gistMap[route] = gist.id;
-        results[idx] = { route: route, id: gist.id, url: base + '?gist=' + gist.id + '&route=' + encodeURIComponent(route) };
+        // 同时生成 ?data=base64 短链（避开 GitHub API 限流）+ ?gist= 长链
+        const _token = localStorage.getItem('gist_token');
+        const _tokenHash = _token ? '#token=' + encodeURIComponent(_token) : '';
+        const _gistUrl = base + '?gist=' + gist.id + '&route=' + encodeURIComponent(route) + _tokenHash;
+        let _dataUrl = '';
+        try {
+          const _orderJson = JSON.stringify([o]);
+          const _compressed = btoa(encodeURIComponent(_orderJson).replace(/%([0-9A-F]{2})/g, function(m, p) { return String.fromCharCode(parseInt(p, 16)); }));
+          _dataUrl = base + '?data=' + _compressed + _tokenHash;
+        } catch(e) {}
+        const _useData = _dataUrl.length > 0 && _dataUrl.length <= 1500;
+        results[idx] = { route: route, id: gist.id, url: _useData ? _dataUrl : _gistUrl, gistUrl: _gistUrl, dataUrl: _dataUrl, useDataUrl: _useData };
       } else {
         console.warn('线路 ' + route + ' 创建失败：' + (gist.message || '未知错误'));
       }
@@ -923,7 +934,7 @@ async function uploadToGist() {
     const gist = await r.json();
     if (gist.id) {
       gistMap.__master = gist.id;
-      results.push({ route: '📦总码', id: gist.id, url: base + '?gist=' + gist.id, isMaster: true });
+      results.push({ route: '📦总码', id: gist.id, url: (function(){ var t = localStorage.getItem('gist_token'); var h = t ? '#token=' + encodeURIComponent(t) : ''; return base + '?gist=' + gist.id + h; })(), isMaster: true });
     } else {
       statusEl.textContent = '❌ 总码创建失败：' + (gist.message || '未知错误') + '（请检查 Token 与限流）';
       if (btnDeploy) btnDeploy.disabled = false;
