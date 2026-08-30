@@ -1,0 +1,56 @@
+name: 清理过期送货单Gist
+
+on:
+  schedule:
+    - cron: '0 10 * * *'        # UTC 10:00 = 北京时间 18:00
+  workflow_dispatch: {}          # 也可在 Actions 页面手动触发
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 删除过期 Gist
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import os, re, json, urllib.request, datetime
+
+          token = os.environ.get('GIST_TOKEN')
+          if not token:
+              print('未配置 GIST_TOKEN secret，跳过。')
+              raise SystemExit
+
+          hdr = {
+              'Authorization': 'Bearer ' + token,
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+          }
+
+          req = urllib.request.Request('https://api.github.com/user/gists?per_page=100', headers=hdr)
+          gists = json.load(urllib.request.urlopen(req))
+          today = datetime.date.today()
+          deleted = 0
+          for g in gists:
+              desc = g.get('description') or ''
+              if '送货单' not in desc:
+                  continue
+              m = re.search(r'(\d{4}-\d{2}-\d{2})', desc)
+              if not m:
+                  continue
+              try:
+                  d = datetime.date.fromisoformat(m.group(1))
+              except Exception:
+                  continue
+              if d < today:
+                  req2 = urllib.request.Request(
+                      'https://api.github.com/gists/' + g['id'],
+                      headers=hdr, method='DELETE')
+                  try:
+                      urllib.request.urlopen(req2)
+                      deleted += 1
+                      print('deleted', g['id'], desc)
+                  except Exception as e:
+                      print('fail', g['id'], e)
+          print('done, deleted', deleted)
+          PY
