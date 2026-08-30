@@ -900,7 +900,7 @@ async function uploadToGist() {
         gistMap[route] = gist.id;
         // 同时生成 ?data=base64 短链（避开 GitHub API 限流）+ ?gist= 长链
         const _token = localStorage.getItem('gist_token');
-        const _tokenHash = _token ? '#token=' + encodeURIComponent(_token) : '';
+        const _tokenHash = _token ? '&token=' + encodeURIComponent(_token) : '';
         const _gistUrl = base + '?gist=' + gist.id + '&route=' + encodeURIComponent(route) + _tokenHash;
         let _dataUrl = '';
         try {
@@ -934,7 +934,7 @@ async function uploadToGist() {
     const gist = await r.json();
     if (gist.id) {
       gistMap.__master = gist.id;
-      results.push({ route: '📦总码', id: gist.id, url: (function(){ var t = localStorage.getItem('gist_token'); var h = t ? '#token=' + encodeURIComponent(t) : ''; return base + '?gist=' + gist.id + h; })(), isMaster: true });
+      results.push({ route: '📦总码', id: gist.id, url: (function(){ var t = localStorage.getItem('gist_token'); var h = t ? '&token=' + encodeURIComponent(t) : ''; return base + '?gist=' + gist.id + h; })(), isMaster: true });
     } else {
       statusEl.textContent = '❌ 总码创建失败：' + (gist.message || '未知错误') + '（请检查 Token 与限流）';
       if (btnDeploy) btnDeploy.disabled = false;
