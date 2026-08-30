@@ -988,7 +988,13 @@ function finishDeploy(results, token, statusEl, gistMap) {
   if (cfg) cfg.style.display = 'none';
   routeResults.sort((a, b) => String(a.route).localeCompare(String(b.route), undefined, { numeric: true, sensitivity: 'base' }));
   if (routeResults.length === 0) { statusEl.textContent = '❌ 创建失败，请检查 Token 与网络'; return; }
-  statusEl.innerHTML = '✅ 已为 ' + routeResults.length + ' 条线路创建独立 Gist' + (masterResult ? ' + 总码（管理员扫码看全部）' : '');
+  let dataCount = routeResults.filter(r => r.useDataUrl).length;
+  let gistCount = routeResults.length - dataCount;
+  let summary = '✅ 已创建 ' + routeResults.length + ' 条线路';
+  if (dataCount > 0) summary += '（' + dataCount + ' 条走短链·不受 GitHub 限流影响）';
+  if (gistCount > 0) summary += '（' + gistCount + ' 条走 Gist）';
+  if (masterResult) summary += ' + 总码';
+  statusEl.innerHTML = summary; + (masterResult ? ' + 总码（管理员扫码看全部）' : '');
   window._deployResults = routeResults;
   localStorage.setItem('deployResults', JSON.stringify(routeResults));
   window._qrIndex = 0;
@@ -1101,7 +1107,9 @@ function renderDeployUrlList() {
   if (!box) return;
   let h = '';
   results.forEach(r => {
-    h += '<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #eee;font-size:12px;"><b style="width:54px;flex-shrink:0;">线路' + esc(r.route) + '</b><input type="text" value="' + esc(r.url) + '" style="flex:1;border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:11px;" readonly><button class="btn btn-ghost btn-sm" style="padding:3px 8px;flex-shrink:0;" onclick="navigator.clipboard.writeText(\'' + r.url + '\').then(()=>showToast(\'已复制线路' + esc(r.route) + '\'))">复制</button></div>';
+    const isShort = r.useDataUrl;
+    const tag = isShort ? '<span style="background:#e6f4ea;color:#0f9d58;font-size:10px;padding:1px 5px;border-radius:3px;flex-shrink:0;">短链</span>' : '<span style="background:#fff8e1;color:#b06000;font-size:10px;padding:1px 5px;border-radius:3px;flex-shrink:0;">Gist</span>';
+    h += '<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #eee;font-size:12px;"><b style="width:54px;flex-shrink:0;">线路' + esc(r.route) + '</b>' + tag + '<input type="text" value="' + esc(r.url) + '" style="flex:1;border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:11px;" readonly><button class="btn btn-ghost btn-sm" style="padding:3px 8px;flex-shrink:0;" onclick="navigator.clipboard.writeText(\'' + r.url + '\').then(()=>showToast(\'已复制线路' + esc(r.route) + '\'))">复制</button></div>';
   });
   box.innerHTML = h;
 }
