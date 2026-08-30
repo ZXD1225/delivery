@@ -79,6 +79,10 @@ textarea { resize: vertical; min-height: 80px; font-family: inherit; }
 .restaurant-group { margin-top: 8px; border-left: 3px solid #e0e0e0; padding-left: 10px; }
 .restaurant-group h5 { font-size: 13.5px; color: #555; margin-bottom: 4px; }
 .restaurant-group .stop { font-size: 12px; color: #888; }
+.fifo-summary-list { display:flex; flex-direction:column; gap:6px; }
+.fifo-row { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; font-size:13px; background:#fafafa; flex-wrap:wrap; }
+.fifo-row.fifo-critical { background:#FEE2E2; } .fifo-row.fifo-severe { background:#FFEDD5; } .fifo-row.fifo-moderate { background:#FEF3C7; } .fifo-row.fifo-mild { background:#F3E8FF; }
+.fifo-lv { font-weight:700; } .fifo-rt { color:#666; } .fifo-code { font-family:monospace; } .fifo-name { flex:1; min-width:80px; } .fifo-days { font-weight:700; } .fifo-empty { padding:12px; color:#16a34a; font-size:13px; }
 </style>
 </head>
 <body>
@@ -90,6 +94,7 @@ textarea { resize: vertical; min-height: 80px; font-family: inherit; }
 <div class="tab-bar">
   <button class="tab-btn active" onclick="switchTab('excel')">Excel导入</button>
   <button class="tab-btn" onclick="switchTab('manual')">手动创建</button>
+  <button class="tab-btn" onclick="switchTab('inventory')">库存导入</button>
   <button class="tab-btn" onclick="switchTab('history')">历史记录</button>
 </div>
 
@@ -156,6 +161,34 @@ textarea { resize: vertical; min-height: 80px; font-family: inherit; }
       </div>
     </div>
   </div>
+
+  <!-- 库存导入 -->
+  <div id="tab-inventory" class="hidden">
+    <div class="card">
+      <h2>导入仓库批次库存</h2>
+      <p class="hint">用于司机端「抽检模式」的 FIFO 先过期批次预警。列顺序：<b>SKU / 品名 / 生产日期 / 出库单位数量 / 出库单位</b></p>
+      <div class="import-zone" id="invZone" onclick="document.getElementById('invFileInput').click()">
+        <div class="icon">📦</div>
+        <p>点击选择库存 Excel 文件</p>
+      </div>
+      <input type="file" id="invFileInput" accept=".xlsx,.xls" style="display:none" onchange="handleInventoryFile(event)">
+      <div id="invPreview"></div>
+      <div class="btn-group" id="invActions" style="display:none;">
+        <button class="btn btn-primary" onclick="confirmInventory()">✓ 确认导入库存</button>
+        <button class="btn btn-outline" onclick="clearInventory()">取消</button>
+      </div>
+      <p class="hint" style="margin-top:12px;">导入后，请在「Excel导入」或「历史记录」中点击任意送货单的「部署到 Gist」，库存会随送货单一起同步给司机端（仅抽检模式可见）。</p>
+    </div>
+    <div class="card" id="fifoAdminCard" style="margin-top:16px;display:none;">
+      <h2>⚠ FIFO 违规汇总（全部线路）</h2>
+      <p class="hint">基于已导入的库存与已上传的送货单，按严重程度排序。</p>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="exportFifoCsv()">导出 CSV（全部线路）</button>
+        <button class="btn btn-outline" onclick="renderFifoAdminSummary()">刷新</button>
+      </div>
+      <div id="fifoAdminList" class="fifo-summary-list" style="margin-top:12px;"></div>
+    </div>
+  </div>
 </main>
 
 <!-- 二维码弹窗 -->
@@ -167,6 +200,7 @@ textarea { resize: vertical; min-height: 80px; font-family: inherit; }
       <span id="qrNavInfo" style="font-size:13px;color:#666;"></span>
       <button class="btn btn-outline btn-sm" id="btnNextRoute" onclick="nextQrOrder()" style="margin-left:8px;float:right;">下一条 →</button>
     </div>
+    <div id="deployUrlList"></div>
     <div id="qrcode"></div>
     <p id="qrId" style="margin-top:12px;"></p>
     <p id="qrRoute" style="font-size:13px;color:#888;"></p>
@@ -198,6 +232,8 @@ function generateId() { return 'DLV-' + Date.now().toString(36).toUpperCase() + 
 
 // ========== Excel 导入 ==========
 let parsedRouteGroups = []; // [{ route, shipDate, restaurants: [{stop,code,name,items:[]}] }]
+let inventoryData = null;   // 仓库批次库存 {bySku:{sku:{name,batches:[{date,qty}]}}}
+try { const _inv = localStorage.getItem('delivery_inventory'); if (_inv) inventoryData = JSON.parse(_inv); } catch(e){}
 
 function handleFile(event) {
   const file = event.target.files[0];
@@ -511,6 +547,78 @@ function clearImport() {
   document.getElementById('fileInput').value = '';
 }
 
+// ========== 库存导入（批次 FIFO 用） ==========
+function handleInventoryFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      parseInventoryRows(rows);
+    } catch (err) { showToast('库存解析失败：' + err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+function invNormDate(v) {
+  if (v === null || v === undefined || v === '') return '';
+  if (typeof v === 'number') {
+    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+    if (isNaN(d.getTime())) return '';
+    const y = d.getFullYear(); if (y < 1990 || y > 2100) return '';
+    return y + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+  let s = String(v).trim();
+  const m = s.match(/(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})/);
+  if (m) return m[1] + '-' + String(m[2]).padStart(2,'0') + '-' + String(m[3]).padStart(2,'0');
+  return '';
+}
+function parseInventoryRows(rows) {
+  const map = {};
+  let skipped = 0, totalQty = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    let skuRaw = String(r[0] || '').trim();
+    const name = String(r[1] || '').trim();
+    const dateRaw = invNormDate(r[2]);
+    const qtyRaw = String(r[3] || '').trim();
+    if (!skuRaw || !dateRaw) { skipped++; continue; }
+    skuRaw = skuRaw.replace(/\.0+$/, '');
+    const qty = parseFloat(qtyRaw);
+    if (isNaN(qty)) { skipped++; continue; }
+    totalQty += qty;
+    if (!map[skuRaw]) map[skuRaw] = { name: name, batches: [] };
+    if (name && !map[skuRaw].name) map[skuRaw].name = name;
+    let b = map[skuRaw].batches.find(x => x.date === dateRaw);
+    if (!b) { b = { date: dateRaw, qty: 0 }; map[skuRaw].batches.push(b); }
+    b.qty += qty;
+  }
+  inventoryData = { bySku: map, updatedAt: new Date().toISOString() };
+  const skuCount = Object.keys(map).length;
+  document.getElementById('invPreview').innerHTML =
+    '<div class="split-result"><div style="padding:10px 14px;border-radius:8px;margin:8px 0;font-size:14px;background:#e6f4ea;color:#0f9d58;border:1px solid #0f9d58;">' +
+    '✓ 解析成功：<b>' + skuCount + '</b> 个SKU，<b>' + totalQty + '</b> 件库存' + (skipped>0?('（跳过 '+skipped+' 行无效数据）'):'') + '</div></div>';
+  document.getElementById('invActions').style.display = 'flex';
+}
+function confirmInventory() {
+  if (!inventoryData) return;
+  localStorage.setItem('delivery_inventory', JSON.stringify(inventoryData));
+  showToast('库存已导入（' + Object.keys(inventoryData.bySku).length + ' 个SKU）。部署Gist后司机端抽检可见');
+  document.getElementById('invFileInput').value = '';
+  const card = document.getElementById('fifoAdminCard');
+  if (card) card.style.display = 'block';
+  renderFifoAdminSummary();
+}
+function clearInventory() {
+  inventoryData = null;
+  document.getElementById('invPreview').innerHTML = '';
+  document.getElementById('invActions').style.display = 'none';
+  document.getElementById('invFileInput').value = '';
+}
+
 // ========== 手动创建 ==========
 function addItem() {
   const c = document.getElementById('itemsContainer');
@@ -655,73 +763,122 @@ function updateQrNavButtons() {
   document.getElementById('qrNavInfo').textContent = (window._qrIndex + 1) + ' / ' + list.length;
 }
 function nextQrOrder() {
+  if (window._deployResults && window._deployResults.length) {
+    if (window._qrIndex < window._deployResults.length - 1) showDeployQr(window._qrIndex + 1);
+    return;
+  }
   const list = window._qrOrderList || [];
   if (window._qrIndex < list.length - 1) { window._qrIndex++; showQrModal(list[window._qrIndex]); updateQrNavButtons(); }
 }
 function prevQrOrder() {
+  if (window._deployResults && window._deployResults.length) {
+    if (window._qrIndex > 0) showDeployQr(window._qrIndex - 1);
+    return;
+  }
   const list = window._qrOrderList || [];
   if (window._qrIndex > 0) { window._qrIndex--; showQrModal(list[window._qrIndex]); updateQrNavButtons(); }
 }
 // ========== Gist 部署 ==========
 window._lastOrderData = null; // Gist 上传时使用
 
+function driverBaseUrl() {
+  if (window.location.protocol === 'file:') return 'https://zxd1225.github.io/delivery/driver.html';
+  return window.location.origin + window.location.pathname.replace('delivery_admin.html', 'driver.html');
+}
+async function deleteOldDeployedGists(token) {
+  let ids = [];
+  try { ids = JSON.parse(localStorage.getItem('deployedGistIds') || '[]'); } catch (e) {}
+  for (const id of ids) {
+    try { await fetch('https://api.github.com/gists/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } }); } catch (e) {}
+  }
+}
+// ========== Gist 部署（每条线路独立 Gist，数据隔离 + 每日自动清理） ==========
 function uploadToGist() {
   const token = document.getElementById('gistToken').value.trim();
   const statusEl = document.getElementById('gistStatus');
   if (!token) { statusEl.textContent = '⚠️ 请输入 GitHub Personal Access Token'; return; }
-
-  // 上传全部线路，不再只传当前一条
   const orders = getOrders();
   if (orders.length === 0) { statusEl.textContent = '⚠️ 没有可上传的数据'; return; }
-
-  // 当前正在查看的线路（用于生成该线路的二维码）
-  const currentOrder = window._lastOrderData;
-  const currentRoute = currentOrder ? currentOrder.route : (orders[0] ? orders[0].route : '');
-
-  statusEl.textContent = '🔄 正在上传全部 ' + orders.length + ' 条线路...';
-
-  const dataStr = JSON.stringify(orders);
-  const today = new Date().toISOString().split('T')[0];
-  const filename = 'delivery-all-' + today + '.json';
-
-  // 一步到位：创建 Gist 时直接带上全部线路数据
-  fetch('https://api.github.com/gists', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      description: '送货单 全部线路 ' + orders.length + '条 ' + today,
-      public: false,
-      files: { [filename]: { content: dataStr } }
-    })
-  }).then(r => r.json()).then(gist => {
-    if (gist.html_url) {
-      const gistId = gist.id;
-      // 保存 Token 到 localStorage，后续自动使用
-      localStorage.setItem('gist_token', token);
-      // 生成司机扫码链接：桌面 file:// 模式下强制使用 GitHub Pages 地址
-      let driverBaseUrl;
-      if (window.location.protocol === 'file:') {
-        driverBaseUrl = 'https://zxd1225.github.io/delivery/driver.html';
-      } else {
-        driverBaseUrl = window.location.origin + window.location.pathname.replace('delivery_admin.html', 'driver.html');
-      }
-      // URL 带上 &route=xxx，司机扫码后自动跳到对应线路
-      const driverUrl = driverBaseUrl + '?gist=' + gistId + '&route=' + encodeURIComponent(currentRoute);
-      statusEl.innerHTML = '✅ 全部 ' + orders.length + ' 条线路已上传！Token 已记住<br>司机链接（' + esc(currentRoute) + '）：<br><a href="' + driverUrl + '" target="_blank" style="color:var(--c-primary);word-break:break-all;font-size:12px;">' + driverUrl + '</a>';
-      // 更新二维码（当前线路的扫码链接）
-      const qrc = document.getElementById('qrcode');
-      qrc.innerHTML = '';
-      new QRCode(qrc, { text: driverUrl, width: 220, height: 220, colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.L });
-      document.getElementById('qrHint').textContent = '司机扫码直接打开（已包含全部线路数据）';
-      // 隐藏 token 输入区
-      document.getElementById('gistToken').style.display = 'none';
-      document.getElementById('btnGistUpload').style.display = 'none';
-    } else {
-      throw new Error(gist.message || '创建 Gist 失败');
-    }
-  }).catch(err => {
-    statusEl.textContent = '❌ ' + err.message + '（请检查 Token 是否正确，且已勾选 gist 权限）';
+  statusEl.textContent = '🔄 正在为 ' + orders.length + ' 条线路分别创建独立 Gist（数据隔离）...';
+  const today = new Date();
+  const validDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 18, 0, 0);
+  validDate.setDate(validDate.getDate() + 1);
+  const validUntil = validDate.toISOString();
+  const dateStr = today.toISOString().split('T')[0];
+  const invContent = inventoryData ? JSON.stringify(inventoryData) : null;
+  const base = driverBaseUrl();
+  deleteOldDeployedGists(token).then(() => {
+    const results = [];
+    let pending = orders.length;
+    if (pending === 0) { finishDeploy(results, token, statusEl); return; }
+    orders.forEach(o => {
+      const files = {};
+      files['delivery-' + o.route + '.json'] = { content: JSON.stringify([o]) };
+      if (invContent) files['inventory.json'] = { content: invContent };
+      files['meta.json'] = { content: JSON.stringify({ route: o.route, date: dateStr, validUntil: validUntil }) };
+      fetch('https://api.github.com/gists', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: '送货单 线路' + o.route + ' ' + dateStr + (invContent ? '（含库存）' : ''), public: false, files: files })
+      }).then(r => r.json()).then(gist => {
+        if (gist.id) {
+          const url = base + '?gist=' + gist.id + '&route=' + encodeURIComponent(o.route);
+          results.push({ route: o.route, id: gist.id, url: url });
+        }
+        if (--pending === 0) finishDeploy(results, token, statusEl);
+      }).catch(err => {
+        if (--pending === 0) finishDeploy(results, token, statusEl);
+      });
+    });
   });
+}
+function finishDeploy(results, token, statusEl) {
+  localStorage.setItem('gist_token', token);
+  localStorage.setItem('deployedGistIds', JSON.stringify(results.map(r => r.id)));
+  document.getElementById('qrModal').classList.add('show');
+  document.getElementById('btnGistUpload').style.display = 'none';
+  document.getElementById('gistToken').style.display = 'none';
+  document.getElementById('btnCopyData').style.display = 'none';
+  const cfg = document.getElementById('gistConfig');
+  if (cfg) cfg.style.display = 'none';
+  if (results.length === 0) { statusEl.textContent = '❌ 创建失败，请检查 Token 与网络'; return; }
+  statusEl.innerHTML = '✅ 已为 ' + results.length + ' 条线路创建独立 Gist（每条数据隔离，每日 18:00 自动清理）';
+  window._deployResults = results;
+  window._qrIndex = 0;
+  showDeployQr(0);
+  renderDeployUrlList();
+}
+function showDeployQr(idx) {
+  const results = window._deployResults || [];
+  if (!results.length) return;
+  window._qrIndex = idx;
+  const r = results[idx];
+  document.getElementById('qrId').textContent = '线路：' + r.route;
+  document.getElementById('qrRoute').textContent = '独立 Gist · 数据隔离';
+  const qrc = document.getElementById('qrcode'); qrc.innerHTML = '';
+  new QRCode(qrc, { text: r.url, width: 220, height: 220, colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.L });
+  document.getElementById('qrHint').textContent = '司机扫码直接打开（仅本线路数据）';
+  updateDeployNav();
+}
+function updateDeployNav() {
+  const nav = document.getElementById('qrNav');
+  if (!nav) return;
+  const list = window._deployResults || [];
+  if (list.length <= 1) { nav.style.display = 'none'; return; }
+  nav.style.display = 'block';
+  document.getElementById('btnPrevRoute').style.visibility = window._qrIndex > 0 ? 'visible' : 'hidden';
+  document.getElementById('btnNextRoute').style.visibility = window._qrIndex < list.length - 1 ? 'visible' : 'hidden';
+  document.getElementById('qrNavInfo').textContent = (window._qrIndex + 1) + ' / ' + list.length;
+}
+function renderDeployUrlList() {
+  const results = window._deployResults || [];
+  const box = document.getElementById('deployUrlList');
+  if (!box) return;
+  let h = '';
+  results.forEach(r => {
+    h += '<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #eee;font-size:12px;"><b style="width:54px;flex-shrink:0;">线路' + esc(r.route) + '</b><input type="text" value="' + esc(r.url) + '" style="flex:1;border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:11px;" readonly><button class="btn btn-ghost btn-sm" style="padding:3px 8px;flex-shrink:0;" onclick="navigator.clipboard.writeText(\'' + r.url + '\').then(()=>showToast(\'已复制线路' + esc(r.route) + '\'))">复制</button></div>';
+  });
+  box.innerHTML = h;
 }
 
 // 清除已保存的 Token（在历史记录页提供入口）
@@ -784,8 +941,83 @@ function deleteOrder(id) {
 }
 
 // ========== Tab ==========
+// ========== FIFO 违规汇总（管理端，全部线路） ==========
+function fifoLevelForItemAdmin(item) {
+  if (!inventoryData || !inventoryData.bySku) return null;
+  const sku = String(item.code || '').trim();
+  if (!sku) return null;
+  const inv = inventoryData.bySku[sku];
+  if (!inv || !inv.batches || !inv.batches.length) return null;
+  const dStr = String(item.productionDate || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}/.test(dStr)) return null;
+  const d = Date.parse(dStr.slice(0, 10) + 'T00:00:00Z');
+  if (isNaN(d)) return null;
+  let earliest = null, earliestDate = null;
+  inv.batches.forEach(b => {
+    if (b.qty > 0) {
+      const t = Date.parse(b.date + 'T00:00:00Z');
+      if (!isNaN(t) && (earliest === null || t < earliest)) { earliest = t; earliestDate = b.date; }
+    }
+  });
+  if (earliest === null) return null;
+  const diffDays = Math.round((d - earliest) / 86400000);
+  if (diffDays <= 0) return null;
+  const level = diffDays <= 7 ? 'mild' : diffDays <= 15 ? 'moderate' : diffDays <= 30 ? 'severe' : 'critical';
+  return { level: level, diffDays: diffDays, invDate: earliestDate };
+}
+function collectFifoViolations(orders) {
+  if (!inventoryData || !inventoryData.bySku) return [];
+  const lvOrder = { critical: 0, severe: 1, moderate: 2, mild: 3 };
+  let rows = [];
+  orders.forEach(o => {
+    (o.restaurants || []).forEach(r => {
+      (r.items || []).forEach(it => {
+        const f = fifoLevelForItemAdmin(it);
+        if (f) rows.push({ route: o.route, stop: r.stop, rname: r.name, code: it.code, name: it.name, level: f.level, diff: f.diffDays, invDate: f.invDate, prod: it.productionDate });
+      });
+    });
+  });
+  rows.sort((a, b) => lvOrder[a.level] - lvOrder[b.level] || String(a.route).localeCompare(String(b.route)));
+  return rows;
+}
+function renderFifoAdminSummary() {
+  const list = document.getElementById('fifoAdminList');
+  if (!list) return;
+  if (!inventoryData || !inventoryData.bySku) { list.innerHTML = '<div class="fifo-empty">⚠ 请先在「库存导入」导入仓库批次库存</div>'; return; }
+  const orders = getOrders();
+  const rows = collectFifoViolations(orders);
+  if (rows.length === 0) { list.innerHTML = '<div class="fifo-empty">✅ 全部线路未检出 FIFO 违规</div>'; return; }
+  const lvName = { critical: '🔴严重', severe: '🟠橙', moderate: '🟡琥珀', mild: '🟣紫' };
+  let h = '<div style="font-size:13px;color:#666;margin-bottom:6px;">共 ' + rows.length + ' 项违规，已按严重程度排序</div>';
+  rows.forEach(v => {
+    h += '<div class="fifo-row fifo-' + v.level + '"><span class="fifo-lv">' + lvName[v.level] + '</span><span class="fifo-rt">线路' + esc(v.route) + '·停靠' + esc(v.stop || '--') + '</span><span class="fifo-code">' + esc(v.code || '') + '</span><span class="fifo-name">' + esc(v.name || '') + '</span><span class="fifo-days">晚' + v.diff + '天</span></div>';
+  });
+  list.innerHTML = h;
+}
+function csvCell(s) { s = String(s == null ? '' : s); if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'; return s; }
+function downloadFile(name, content) {
+  const blob = new Blob(['﻿' + content], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+function exportFifoCsv() {
+  const orders = getOrders();
+  const rows = collectFifoViolations(orders);
+  if (!rows.length) { showToast('未检出 FIFO 违规，无需导出'); return; }
+  const lvNameCsv = { critical: '严重', severe: '橙', moderate: '琥珀', mild: '紫' };
+  let csv = '级别,线路号,停靠,餐厅,品项编码,品名,晚X天,库存最早日期,送货单日期\n';
+  rows.forEach(v => {
+    const cells = [lvNameCsv[v.level], v.route, v.stop || '', csvCell(v.rname), csvCell(String(v.code || '')), csvCell(v.name || ''), v.diff, v.invDate || '', v.prod || ''];
+    csv += cells.join(',') + '\n';
+  });
+  downloadFile('FIFO违规_全部线路_' + new Date().toISOString().split('T')[0] + '.csv', csv);
+  showToast('已导出 ' + rows.length + ' 项 FIFO 违规');
+}
 function switchTab(tab) {
-  const tabs = ['excel','manual','history'];
+  const tabs = ['excel','manual','inventory','history'];
   document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', i === tabs.indexOf(tab)));
   tabs.forEach(id => document.getElementById('tab-' + id).classList.add('hidden'));
   document.getElementById('tab-' + tab).classList.remove('hidden');
