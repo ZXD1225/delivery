@@ -103,6 +103,7 @@ textarea { resize: vertical; min-height: 80px; font-family: inherit; }
   <button class="tab-btn" onclick="switchTab('manual')">手动创建</button>
   <button class="tab-btn" onclick="switchTab('inventory')">库存导入</button>
   <button class="tab-btn" onclick="switchTab('history')">历史记录</button>
+  <button class="tab-btn" id="tabBtnMaster" onclick="switchTab('master')" style="background:linear-gradient(135deg,#1a73e8,#4285f4);color:#fff;font-weight:600;">📦 总码</button>
 </div>
 
 <main>
@@ -170,7 +171,18 @@ textarea { resize: vertical; min-height: 80px; font-family: inherit; }
   </div>
 
   <!-- 库存导入 -->
-  <div id="tab-inventory" class="hidden">
+  
+  <!-- 总码（管理员专属） -->
+  <div id="tab-master" class="hidden">
+    <div class="card">
+      <h2>📦 管理员总码</h2>
+      <p style="color:#666;font-size:13px;margin-bottom:14px;">总码可看到<strong>所有线路</strong>，用于管理员在手机上快速切换任意线路抽检。司机扫码请用单条线路的二维码。</p>
+      <div id="masterTabContent">
+        <div style="padding:24px;background:#fef7e0;border:1px solid #e37400;border-radius:8px;color:#b06000;font-size:14px;text-align:center;">⏳ 加载中…</div>
+      </div>
+    </div>
+  </div>
+<div id="tab-inventory" class="hidden">
     <div class="card">
       <h2>导入仓库批次库存</h2>
       <p class="hint">用于司机端「抽检模式」的 FIFO 先过期批次预警。列顺序：<b>SKU / 品名 / 生产日期 / 出库单位数量 / 出库单位</b></p>
@@ -250,7 +262,12 @@ function saveOrders(o) { localStorage.setItem(STORAGE_KEY, JSON.stringify(o)); }
 function generateId() { return 'DLV-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase(); }
 
 // ========== Excel 导入 ==========
-let parsedRouteGroups = []; // [{ route, shipDate, restaurants: [{stop,code,name,items:[]}] }]
+let parsedRouteGroups = [];
+
+window.addEventListener('DOMContentLoaded', function() {
+  setTimeout(renderMasterTab, 100);
+});
+ // [{ route, shipDate, restaurants: [{stop,code,name,items:[]}] }]
 let inventoryData = null;   // 仓库批次库存 {bySku:{sku:{name,batches:[{date,qty}]}}}
 try { const _inv = localStorage.getItem('delivery_inventory'); if (_inv) inventoryData = JSON.parse(_inv); } catch(e){}
 
@@ -678,8 +695,44 @@ function createManualDelivery() {
 }
 
 // ========== 二维码 ==========
-function showQrModal(order) {
+function showQrModal(order, noAutoDeploy) {
   document.getElementById('qrModal').classList.add('show');
+    // 历史记录查看时：noAutoDeploy=true，用已部署的 gist_id 显示，不重部署
+  if (noAutoDeploy) {
+    let gistMap = {};
+    try { const raw = localStorage.getItem('deployedGistMap'); if (raw) gistMap = JSON.parse(raw); } catch (e) {}
+    const route = String(order.route);
+    const existingGistId = gistMap[route];
+    if (existingGistId) {
+      const base = driverBaseUrl();
+      const url = base + '?gist=' + existingGistId + '&route=' + encodeURIComponent(route);
+      document.getElementById('qrId').textContent = '线路：' + route;
+      document.getElementById('qrRoute').textContent = '已部署 · ' + (order.source === 'excel-template' ? 'Excel 模板导入' : '手动创建');
+      const qrc = document.getElementById('qrcode'); qrc.innerHTML = '';
+      try { new QRCode(qrc, { text: url, width: 220, height: 220, colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.L }); }
+      catch (e) { qrc.innerHTML = '<div style="padding:18px;background:#fef7e0;border:1px solid #e37400;border-radius:8px;color:#b06000;font-size:13px;">二维码库加载失败，请检查网络后刷新</div>'; }
+      document.getElementById('qrHint').textContent = '✅ 已部署 · 司机扫码直接打开（仅本线路数据）';
+      const btnUp = document.getElementById('btnGistUpload'); if (btnUp) btnUp.style.display = 'inline-block';
+      const btnCp = document.getElementById('btnCopyData'); if (btnCp) btnCp.style.display = 'none';
+      const mSec = document.getElementById('masterQrSection'); if (mSec) mSec.style.display = 'none';
+      const qNav = document.getElementById('qrNav'); if (qNav) qNav.style.display = 'none';
+      const dList = document.getElementById('deployUrlList'); if (dList) dList.style.display = 'none';
+      const cfg = document.getElementById('gistConfig'); if (cfg) cfg.style.display = 'none';
+      return;
+    } else {
+      document.getElementById('qrId').textContent = '线路：' + route;
+      document.getElementById('qrRoute').textContent = '⚠️ 该线路尚未部署到 Gist';
+      const qrc = document.getElementById('qrcode'); qrc.innerHTML = '<div style="padding:24px;background:#e8f0fe;border:1px solid #1a73e8;border-radius:8px;color:#1a73e8;font-size:14px;line-height:1.7;text-align:center;">📦<br>该线路尚未部署<br><span style="font-size:12px;color:#666;">点下方「部署到 Gist」生成可扫码的短链接</span></div>';
+      document.getElementById('qrHint').textContent = '⚠️ 未部署 · 数据存在本地，未上传到云端';
+      const btnUp = document.getElementById('btnGistUpload'); if (btnUp) btnUp.style.display = 'inline-block';
+      const btnCp = document.getElementById('btnCopyData'); if (btnCp) btnCp.style.display = 'none';
+      const mSec = document.getElementById('masterQrSection'); if (mSec) mSec.style.display = 'none';
+      const qNav = document.getElementById('qrNav'); if (qNav) qNav.style.display = 'none';
+      const dList = document.getElementById('deployUrlList'); if (dList) dList.style.display = 'none';
+      const cfg = document.getElementById('gistConfig'); if (cfg) cfg.style.display = 'block';
+      return;
+    }
+  }
   document.getElementById('qrId').textContent = '编号：' + order.id;
   document.getElementById('qrRoute').textContent = '线路：' + order.route + ' | ' + (order.source === 'excel-template' ? 'Excel模板导入' : '手动创建');
   const qrc = document.getElementById('qrcode'); qrc.innerHTML = '';
@@ -920,6 +973,7 @@ function finishDeploy(results, token, statusEl, gistMap) {
     new QRCode(masterQrEl, { text: masterResult.url, width: 160, height: 160, colorDark: '#1a73e8', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.M });
     document.getElementById('masterQrUrl').textContent = masterResult.url;
     window._masterGistUrl = masterResult.url;
+    try { localStorage.setItem('masterGistUrl', masterResult.url); localStorage.setItem('masterGistUpdatedAt', new Date().toISOString()); } catch(e){}
   } else if (masterSection) {
     masterSection.style.display = 'none';
   }
@@ -941,6 +995,84 @@ function finishDeploy(results, token, statusEl, gistMap) {
   showDeployQr(0);
   renderDeployUrlList();
 }
+
+// ========== 总码标签页 ==========
+function renderMasterTab() {
+  const container = document.getElementById('masterTabContent');
+  if (!container) return;
+  const url = localStorage.getItem('masterGistUrl');
+  const updatedAt = localStorage.getItem('masterGistUpdatedAt');
+  const orders = getOrders();
+  
+  if (!url) {
+    container.innerHTML = '<div style="padding:24px;background:#e8f0fe;border:1px solid #1a73e8;border-radius:8px;color:#1a73e8;font-size:14px;line-height:1.7;text-align:left;">' +
+      '<strong>📦 尚未部署总码</strong><br><br>' +
+      '总码是管理员专属入口，手机扫码可看到<strong>全部 ' + orders.length + ' 条线路</strong>，用于任意线路抽检。<br><br>' +
+      '<strong>怎么部署：</strong><br>' +
+      '1. 先在「Excel 导入」或「手动创建」标签录入数据<br>' +
+      '2. 录入后点页面任意位置的「部署到 Gist」按钮<br>' +
+      '3. 部署完成后这里会出现总码<br><br>' +
+      '<span style="color:#666;font-size:12px;">司机用的是单条线路的二维码，不应该用总码（总码泄露能看到所有线路）。</span>' +
+      '</div>' +
+      '<div style="margin-top:14px;display:flex;gap:8px;">' +
+      '<button class="btn btn-primary" onclick="openDeployFromMaster()">📤 立即部署</button>' +
+      '</div>';
+    return;
+  }
+  
+  const dateStr = updatedAt ? new Date(updatedAt).toLocaleString('zh-CN') : '未知';
+  container.innerHTML = '<div style="padding:18px;background:#e6f4ea;border:1px solid #0f9d58;border-radius:8px;color:#0f9d58;font-size:13px;margin-bottom:14px;">' +
+    '✅ 已部署 · 最后更新：' + dateStr + ' · 含 ' + orders.length + ' 条线路' +
+    '</div>' +
+    '<div style="text-align:center;margin-bottom:14px;">' +
+    '<div id="masterTabQrcode" style="display:inline-block;padding:12px;background:#fff;border:2px solid #1a73e8;border-radius:8px;"></div>' +
+    '</div>' +
+    '<div style="background:#f8f9fa;border-radius:8px;padding:12px;margin-bottom:14px;">' +
+    '<div style="font-size:12px;color:#666;margin-bottom:6px;">管理员扫码链接：</div>' +
+    '<input type="text" id="masterTabUrl" value="' + url + '" readonly style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;background:#fff;font-family:monospace;">' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+    '<button class="btn btn-primary" onclick="copyMasterTabUrl()">📋 复制总码链接</button>' +
+    '<button class="btn btn-outline" onclick="openMasterTabUrl()">🌐 在新窗口打开</button>' +
+    '<button class="btn btn-outline" onclick="openDeployFromMaster()" style="color:#b06000;border-color:#b06000;">🔄 重新部署</button>' +
+    '</div>' +
+    '<div style="margin-top:16px;padding:12px;background:#fff8e1;border-left:3px solid #ff9800;border-radius:4px;font-size:12px;color:#5d4037;">' +
+    '<strong>⚠️ 安全提示：</strong>总码泄露 = 看到所有线路 + 完整库存。只在你自己的手机扫码，<strong>不要发到家族群、朋友圈</strong>。' +
+    '</div>';
+  
+  const qrc = document.getElementById('masterTabQrcode');
+  if (qrc) {
+    qrc.innerHTML = '';
+    try { new QRCode(qrc, { text: url, width: 200, height: 200, colorDark: '#1a73e8', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.M }); }
+    catch (e) { qrc.innerHTML = '<div style="padding:18px;background:#fef7e0;border:1px solid #e37400;border-radius:8px;color:#b06000;font-size:13px;">二维码库加载失败</div>'; }
+  }
+}
+
+function copyMasterTabUrl() {
+  const url = document.getElementById('masterTabUrl');
+  if (!url) return;
+  navigator.clipboard.writeText(url.value).then(() => showToast('✅ 总码链接已复制'));
+}
+
+function openMasterTabUrl() {
+  const url = localStorage.getItem('masterGistUrl');
+  if (url) window.open(url, '_blank');
+}
+
+function openDeployFromMaster() {
+  const token = localStorage.getItem('gist_token');
+  const tokenInput = document.getElementById('gistToken');
+  if (tokenInput && token) tokenInput.value = token;
+  const modal = document.getElementById('qrModal');
+  if (modal) modal.classList.add('show');
+  const btnUp = document.getElementById('btnGistUpload');
+  if (btnUp) btnUp.style.display = 'inline-block';
+  const cfg = document.getElementById('gistConfig');
+  if (cfg) cfg.style.display = 'block';
+  const statusEl = document.getElementById('gistStatus');
+  if (statusEl) statusEl.textContent = '点击「部署到 Gist」按钮开始上传';
+}
+
 function showDeployQr(idx) {
   const results = window._deployResults || [];
   if (!results.length) return;
@@ -1098,11 +1230,11 @@ function renderHistory() {
   });
   h += '</ul>'; c.innerHTML = h;
 }
-function handleQrBtn(btn) { const id = btn.getAttribute('data-id'); if (id) showOrderQr(id); }
+function handleQrBtn(btn) { const id = btn.getAttribute('data-id'); if (id) showOrderQr(id, true); }
 function handleDelBtn(btn) { const id = btn.getAttribute('data-id'); if (id) deleteOrder(id); }
-function showOrderQr(id) {
+function showOrderQr(id, noAutoDeploy) {
   const o = getOrders().find(o => o.id === id);
-  if (o) { window._qrOrderList = [o]; window._qrIndex = 0; showQrModal(o); updateQrNavButtons(); }
+  if (o) { window._qrOrderList = [o]; window._qrIndex = 0; showQrModal(o, !!noAutoDeploy); updateQrNavButtons(); }
 }
 function deleteOrder(id) {
   if (!confirm('确定删除该送货单吗？')) return;
@@ -1195,6 +1327,7 @@ function switchTab(tab) {
   tabs.forEach(id => document.getElementById('tab-' + id).classList.add('hidden'));
   document.getElementById('tab-' + tab).classList.remove('hidden');
   if (tab === 'history') renderHistory();
+  if (tab === 'master') renderMasterTab();
 }
 
 let toastTimer;
