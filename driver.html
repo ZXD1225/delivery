@@ -631,7 +631,7 @@ body { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; 
 </div>
 
 <!-- ============ 库存盘点备注弹窗（双击结果打开） ============ -->
-<div id="invNoteModal" style="display:none;">
+<div class="modal-overlay" id="invNoteModal" style="display:none;z-index:10000;">
   <div class="modal-sheet">
     <div class="modal-title">库存盘点备注</div>
     <div class="modal-sub" id="invNoteSku"></div>
@@ -787,13 +787,11 @@ function loadFromRepo() {
           const data = JSON.parse(text);
           processGistData(data, null);
         } catch (e) {
-          console.log('source', index, 'parse failed:', e.message);
           trySource(index + 1);
         }
       })
       .catch(err => {
         clearTimeout(timeoutId);
-        console.log('source', index, 'failed:', err.message);
         trySource(index + 1);
       });
   }
@@ -808,7 +806,6 @@ function loadInventoryLocal() {
     const raw = localStorage.getItem('delivery_inventory');
     if (raw) {
       INVENTORY = JSON.parse(raw);
-      console.log('[inv] 从本地缓存加载库存', Object.keys(INVENTORY.bySku || {}).length, '个SKU');
     }
   } catch (e) { console.warn('本地库存读取失败', e); }
 }
@@ -847,9 +844,7 @@ function loadFromGist(gistId) {
       if (meta && meta.validUntil && Date.now() > Date.parse(meta.validUntil)) { showJokeExpired(gistId); return; }
       if (inv) INVENTORY = inv;
       if (INVENTORY && typeof inspectMode !== 'undefined' && inspectMode && app && app.order) {
-        try { const _l = document.getElementById('itemCheckList'); if (_l) void _l.offsetHeight; renderCheckPage(); console.log('[inv] Gist 库存到达，抽检模式重渲染 FIFO 角标'); } catch(e){}
-      }
-      if (orders) processGistData(orders, gistId);
+        try { const _l = document.getElementById('itemCheckList'); if (_l) void _l.offsetHeight; renderCheckPage(); } catch(e){}       }
       else showErrorWithRetry('Gist 中未找到送货单数据', gistId);
     })
     .catch(err => {
@@ -1311,7 +1306,13 @@ function onSearchInput() {
     });
   });
   if (results.length === 0) { box.innerHTML = '<div class="search-empty">未找到匹配商品</div>'; return; }
-  results.sort((a, b) => (a.ri === app.currentIdx ? -1 : 0) - (b.ri === app.currentIdx ? -1 : 0));
+  // 本餐厅排第一，其他按餐厅索引+商品顺序排
+  results.sort((a, b) => {
+    if (a.ri === app.currentIdx && b.ri !== app.currentIdx) return -1;
+    if (b.ri === app.currentIdx && a.ri !== app.currentIdx) return 1;
+    if (a.ri !== b.ri) return a.ri - b.ri;
+    return a.ii - b.ii;
+  });
   let html = '';
   results.slice(0, 40).forEach(res => {
     const inCur = res.ri === app.currentIdx;
@@ -1328,6 +1329,13 @@ function jumpToItem(ri, ii) {
   setTimeout(() => {
     const el = document.querySelector('.item-check-row[data-idx="' + ii + '"]');
     if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 2000); }
+    // 跳转后自动关闭搜索面板并清空输入框
+    const sp = document.getElementById('searchPanel');
+    if (sp) sp.style.display = 'none';
+    const si = document.getElementById('searchInput');
+    if (si) { si.value = ''; si.blur(); }
+    const sr = document.getElementById('searchResults');
+    if (sr) sr.innerHTML = '';
   }, 60);
 }
 
@@ -1392,7 +1400,6 @@ function setInspect(on) {
       const list = document.getElementById('itemCheckList');
       if (list) { void list.offsetHeight; void list.offsetWidth; }
       void document.body.offsetHeight;  // 强制整页重排，触发手机浏览器重绘
-      console.log('[setInspect] re-rendered:', why);
     } catch (e) { console.warn('setInspect 重渲染失败', why, e); }
   };
   requestAnimationFrame(() => requestAnimationFrame(() => forceRender('rAF2')));
@@ -1698,9 +1705,16 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   bindLongPressInspect();
   bindBackLongPress();
-  // ESC关闭弹窗
+  // ESC关闭所有弹窗
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeShortageModal(); closeBatchModal(); }
+    if (e.key === 'Escape') {
+      closeShortageModal();
+      closeBatchModal();
+      closeInvQuery();
+      closeInvNote();
+      closeViewNote();
+      closeReorderModal();
+    }
   });
 });
 

@@ -83,6 +83,13 @@ textarea { resize: vertical; min-height: 80px; font-family: inherit; }
 .fifo-row { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; font-size:13px; background:#fafafa; flex-wrap:wrap; }
 .fifo-row.fifo-critical { background:#FEE2E2; } .fifo-row.fifo-severe { background:#FFEDD5; } .fifo-row.fifo-moderate { background:#FEF3C7; } .fifo-row.fifo-mild { background:#F3E8FF; }
 .fifo-lv { font-weight:700; } .fifo-rt { color:#666; } .fifo-code { font-family:monospace; } .fifo-name { flex:1; min-width:80px; } .fifo-days { font-weight:700; } .fifo-empty { padding:12px; color:#16a34a; font-size:13px; }
+
+/* === QR 弹窗修复：可关闭、可滚动、总码区块 === */
+.qr-modal-content { max-height: 88vh; overflow-y: auto; box-sizing: border-box; position: relative; }
+.qr-close-x { position: absolute; top: 8px; right: 12px; background: none; border: none; font-size: 28px; color: #999; cursor: pointer; z-index: 10; line-height: 1; padding: 4px 10px; border-radius: 50%; }
+.qr-close-x:hover { color: #333; background: #f5f5f5; }
+.master-qr-section { background: #f0f7ff; border: 1px solid #d0e3ff; border-radius: 10px; padding: 12px; margin-bottom: 16px; }
+.master-qr-section p { margin: 4px 0; }
 </style>
 </head>
 <body>
@@ -192,15 +199,27 @@ textarea { resize: vertical; min-height: 80px; font-family: inherit; }
 </main>
 
 <!-- 二维码弹窗 -->
-<div class="qr-modal" id="qrModal">
+<div class="qr-modal" id="qrModal" onclick="if(event.target===this)closeQrModal()">
   <div class="qr-modal-content">
+    <button class="qr-close-x" onclick="closeQrModal()" title="关闭">×</button>
     <h3>送货单二维码</h3>
+    <div class="master-qr-section" id="masterQrSection" style="display:none;">
+      <p style="font-size:13px;color:#1a73e8;font-weight:600;">📦 总二维码（管理员扫码查看全部线路）</p>
+      <div id="masterQrcode" style="display:flex;justify-content:center;margin:8px 0;"></div>
+      <p id="masterQrUrl" style="font-size:11px;color:#666;word-break:break-all;line-height:1.4;"></p>
+      <button class="btn btn-outline btn-sm" onclick="copyMasterQrUrl()" style="margin-top:6px;">📋 复制总码链接</button>
+    </div>
+
     <div id="qrNav" style="display:none;margin-bottom:12px;">
       <button class="btn btn-outline btn-sm" id="btnPrevRoute" onclick="prevQrOrder()" style="margin-right:8px;">← 上一条</button>
       <span id="qrNavInfo" style="font-size:13px;color:#666;"></span>
       <button class="btn btn-outline btn-sm" id="btnNextRoute" onclick="nextQrOrder()" style="margin-left:8px;float:right;">下一条 →</button>
     </div>
-    <div id="deployUrlList"></div>
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-outline btn-sm" onclick="toggleDeployUrlList()" id="btnToggleUrlList">📋 展开全部线路链接</button>
+      <button class="btn btn-primary btn-sm" onclick="openPrintBatch()">🖨️ 批量打印所有二维码</button>
+    </div>
+    <div id="deployUrlList" style="display:none;max-height:220px;overflow-y:auto;border:1px solid #e0e0e0;border-radius:6px;padding:6px;margin-top:6px;"></div>
     <div id="qrcode"></div>
     <p id="qrId" style="margin-top:12px;"></p>
     <p id="qrRoute" style="font-size:13px;color:#888;"></p>
@@ -249,8 +268,6 @@ function handleFile(event) {
       if (!sheetName) sheetName = wb.SheetNames[0];
       const sheet = wb.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-      console.log('[DEBUG] admin 选中的 sheet:', sheetName, '总行数:', rows.length);
-      console.log('[DEBUG] 前 5 行:', rows.slice(0, 5));
       window._lastSheetName = sheetName;
       parseTemplateRows(rows);
     } catch (err) { showToast('解析失败：' + err.message); }
@@ -301,13 +318,6 @@ function parseTemplateRows(rows) {
     const end0 = titleIndices[1] || rows.length;
     const blk0 = rows.slice(start0, end0);
     const r1 = blk0[1] || [], r2 = blk0[2] || [], r3 = blk0[3] || [];
-    console.log('[DEBUG 解析] 选中sheet:', window._lastSheetName);
-    console.log('[DEBUG 解析] 第一个块起始行:', start0, '块长度:', blk0.length);
-    console.log('[DEBUG 解析] row1 (客户单号行):', r1);
-    console.log('[DEBUG 解析] row2 (运自行):', r2);
-    console.log('[DEBUG 解析] row3 (出货/线路/停靠行):', r3);
-    console.log('[DEBUG 解析] route (row3[5]):', r3[5]);
-    console.log('[DEBUG 解析] restaurantName (row2[5]):', r2[5]);
   }
 
   if (titleIndices.length === 0) {
@@ -501,7 +511,7 @@ function confirmImport() {
       shipDate: g.shipDate,
       source: 'excel-template',
       restaurants: g.restaurants.map((d, idx) => ({
-        id: 'R' + (idx + 1),
+        id: 'R' + (d.restaurantCode || ('X' + (idx + 1))),
         stop: d.stop,
         code: d.restaurantCode,
         name: d.restaurantName,
@@ -656,7 +666,7 @@ function createManualDelivery() {
   const restaurants = restRaw.split('\n').map(r => r.trim()).filter(r => r);
   const order = {
     id: (routeName + '|' + (dd || new Date().toISOString().split('T')[0])), route: routeName, shipDate: dd || new Date().toISOString().split('T')[0], source: 'manual',
-    restaurants: restaurants.map((n, i) => ({ id: 'R' + (i + 1), stop: String(i + 1).padStart(2, '0'), code: '', name: n, order: i + 1, items: [] })),
+    restaurants: restaurants.map((n, i) => ({ id: 'R' + ((n || '').replace(/[^\w\u4e00-\u9fa5]/g, '') || ('X' + i)), stop: String(i + 1).padStart(2, '0'), code: '', name: n, order: i + 1, items: [] })),
     items, createdAt: new Date().toISOString(), progress: { currentRestaurantIndex: 0 },
   };
   const orders = getOrders(); orders.unshift(order); saveOrders(orders);
@@ -785,21 +795,14 @@ function driverBaseUrl() {
   if (window.location.protocol === 'file:') return 'https://zxd1225.github.io/delivery/driver.html';
   return window.location.origin + window.location.pathname.replace('delivery_admin.html', 'driver.html');
 }
-async function deleteOldDeployedGists(token) {
-  let ids = [];
-  try { ids = JSON.parse(localStorage.getItem('deployedGistIds') || '[]'); } catch (e) {}
-  for (const id of ids) {
-    try { await fetch('https://api.github.com/gists/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } }); } catch (e) {}
-  }
-}
 // ========== Gist 部署（每条线路独立 Gist，数据隔离 + 每日自动清理） ==========
-function uploadToGist() {
+async function uploadToGist() {
   const token = document.getElementById('gistToken').value.trim();
   const statusEl = document.getElementById('gistStatus');
   if (!token) { statusEl.textContent = '⚠️ 请输入 GitHub Personal Access Token'; return; }
   const orders = getOrders();
   if (orders.length === 0) { statusEl.textContent = '⚠️ 没有可上传的数据'; return; }
-  statusEl.textContent = '🔄 正在为 ' + orders.length + ' 条线路分别创建独立 Gist（数据隔离）...';
+  statusEl.textContent = '🔄 正在为 ' + orders.length + ' 条线路创建独立 Gist（重复线路自动覆盖旧数据）...';
   const today = new Date();
   const validDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 18, 0, 0);
   validDate.setDate(validDate.getDate() + 1);
@@ -807,43 +810,85 @@ function uploadToGist() {
   const dateStr = today.toISOString().split('T')[0];
   const invContent = inventoryData ? JSON.stringify(inventoryData) : null;
   const base = driverBaseUrl();
-  deleteOldDeployedGists(token).then(() => {
-    const results = [];
-    let pending = orders.length;
-    if (pending === 0) { finishDeploy(results, token, statusEl); return; }
-    orders.forEach(o => {
-      const files = {};
-      files['delivery-' + o.route + '.json'] = { content: JSON.stringify([o]) };
-      if (invContent) files['inventory.json'] = { content: invContent };
-      files['meta.json'] = { content: JSON.stringify({ route: o.route, date: dateStr, validUntil: validUntil }) };
-      fetch('https://api.github.com/gists', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description: '送货单 线路' + o.route + ' ' + dateStr + (invContent ? '（含库存）' : ''), public: false, files: files })
-      }).then(r => r.json()).then(gist => {
+
+  // 历史 Gist 映射：route -> gistId（用于覆盖时只删同线路的旧 Gist，不碰其他线路）
+  let gistMap = {};
+  try { const raw = localStorage.getItem('deployedGistMap'); if (raw) gistMap = JSON.parse(raw); } catch (e) {}
+  if (Array.isArray(gistMap)) gistMap = {}; // 兼容旧数组格式
+
+  const headers = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
+  const results = [];
+  let pending = orders.length + 1; // +1 给总码 Gist
+
+  const done = () => { if (--pending === 0) finishDeploy(results, token, statusEl, gistMap); };
+
+  // === 总码 Gist：先删旧再建新 ===
+  if (gistMap.__master) {
+    try { await fetch('https://api.github.com/gists/' + gistMap.__master, { method: 'DELETE', headers }); } catch (e) {}
+  }
+  const masterFiles = {};
+  masterFiles['delivery-all.json'] = { content: JSON.stringify(orders) };
+  if (invContent) masterFiles['inventory.json'] = { content: invContent };
+  masterFiles['meta.json'] = { content: JSON.stringify({ isMaster: true, date: dateStr, validUntil: validUntil, count: orders.length }) };
+  fetch('https://api.github.com/gists', { method: 'POST', headers, body: JSON.stringify({ description: '送货单 总码 全部线路' + orders.length + '条 ' + dateStr + (invContent ? '（含库存）' : ''), public: false, files: masterFiles }) })
+    .then(r => r.json()).then(gist => {
+      if (gist.id) { gistMap.__master = gist.id; results.unshift({ route: '📦总码', id: gist.id, url: base + '?gist=' + gist.id, isMaster: true }); }
+      done();
+    }).catch(() => done());
+
+  // === 每条线路独立 Gist：先删该线路旧 Gist（若有），再建新 ===
+  orders.forEach(o => {
+    const route = String(o.route);
+    if (gistMap[route]) {
+      const oldId = gistMap[route];
+      fetch('https://api.github.com/gists/' + oldId, { method: 'DELETE', headers }).catch(() => {});
+    }
+    const files = {};
+    files['delivery-' + route + '.json'] = { content: JSON.stringify([o]) };
+    if (invContent) files['inventory.json'] = { content: invContent };
+    files['meta.json'] = { content: JSON.stringify({ route: route, date: dateStr, validUntil: validUntil }) };
+    fetch('https://api.github.com/gists', { method: 'POST', headers, body: JSON.stringify({ description: '送货单 线路' + route + ' ' + dateStr + (invContent ? '（含库存）' : ''), public: false, files: files }) })
+      .then(r => r.json()).then(gist => {
         if (gist.id) {
-          const url = base + '?gist=' + gist.id + '&route=' + encodeURIComponent(o.route);
-          results.push({ route: o.route, id: gist.id, url: url });
+          gistMap[route] = gist.id;
+          const url = base + '?gist=' + gist.id + '&route=' + encodeURIComponent(route);
+          results.push({ route: route, id: gist.id, url: url });
         }
-        if (--pending === 0) finishDeploy(results, token, statusEl);
-      }).catch(err => {
-        if (--pending === 0) finishDeploy(results, token, statusEl);
-      });
-    });
+        done();
+      }).catch(() => done());
   });
 }
-function finishDeploy(results, token, statusEl) {
+function finishDeploy(results, token, statusEl, gistMap) {
   localStorage.setItem('gist_token', token);
-  localStorage.setItem('deployedGistIds', JSON.stringify(results.map(r => r.id)));
+  if (gistMap) localStorage.setItem('deployedGistMap', JSON.stringify(gistMap));
+
+  // === 渲染总码 QR ===
+  const masterResult = results.find(r => r.isMaster);
+  const masterSection = document.getElementById('masterQrSection');
+  if (masterResult && masterSection) {
+    masterSection.style.display = 'block';
+    const masterQrEl = document.getElementById('masterQrcode');
+    masterQrEl.innerHTML = '';
+    new QRCode(masterQrEl, { text: masterResult.url, width: 160, height: 160, colorDark: '#1a73e8', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.M });
+    document.getElementById('masterQrUrl').textContent = masterResult.url;
+    window._masterGistUrl = masterResult.url;
+  } else if (masterSection) {
+    masterSection.style.display = 'none';
+  }
+  // 过滤掉 master，导航只用单线路
+  const routeResults = results.filter(r => !r.isMaster);
+
   document.getElementById('qrModal').classList.add('show');
   document.getElementById('btnGistUpload').style.display = 'none';
   document.getElementById('gistToken').style.display = 'none';
   document.getElementById('btnCopyData').style.display = 'none';
   const cfg = document.getElementById('gistConfig');
   if (cfg) cfg.style.display = 'none';
-  if (results.length === 0) { statusEl.textContent = '❌ 创建失败，请检查 Token 与网络'; return; }
-  statusEl.innerHTML = '✅ 已为 ' + results.length + ' 条线路创建独立 Gist（每条数据隔离，每日 18:00 自动清理）';
-  window._deployResults = results;
+  routeResults.sort((a, b) => String(a.route).localeCompare(String(b.route), undefined, { numeric: true, sensitivity: 'base' }));
+  if (routeResults.length === 0) { statusEl.textContent = '❌ 创建失败，请检查 Token 与网络'; return; }
+  statusEl.innerHTML = '✅ 已为 ' + routeResults.length + ' 条线路创建独立 Gist' + (masterResult ? ' + 总码（管理员扫码看全部）' : '');
+  window._deployResults = routeResults;
+  localStorage.setItem('deployResults', JSON.stringify(routeResults));
   window._qrIndex = 0;
   showDeployQr(0);
   renderDeployUrlList();
@@ -888,6 +933,89 @@ function clearGistToken() {
 }
 function closeQrModal() { document.getElementById('qrModal').classList.remove('show'); }
 
+function toggleDeployUrlList() {
+  const list = document.getElementById('deployUrlList');
+  const btn = document.getElementById('btnToggleUrlList');
+  if (!list || !btn) return;
+  if (list.style.display === 'none') { list.style.display = 'block'; btn.textContent = '📋 收起链接列表'; }
+  else { list.style.display = 'none'; btn.textContent = '📋 展开全部线路链接'; }
+}
+
+function openPrintBatch() {
+  const results = window._deployResults || [];
+  if (!results.length) { showToast('暂无已部署的二维码，请先点击「部署到 Gist」'); return; }
+  // 在隐藏容器中生成所有 QR 并转 dataURL
+  const container = document.createElement('div');
+  container.style.cssText = 'position:fixed;top:-99999px;left:-99999px;';
+  document.body.appendChild(container);
+  const cells = results.map((r, i) => {
+    const div = document.createElement('div');
+    container.appendChild(div);
+    try {
+      new QRCode(div, { text: r.url, width: 150, height: 150, colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.M });
+      const canvas = div.querySelector('canvas');
+      const img = canvas ? canvas.toDataURL('image/png') : '';
+      return { route: r.route, url: r.url, gistId: r.id, img: img };
+    } catch(e) { return { route: r.route, url: r.url, gistId: r.id, img: '' }; }
+  });
+  document.body.removeChild(container);
+  const html = buildPrintHTML(cells, new Date().toISOString().split('T')[0]);
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  if (!win) { showToast('浏览器拦截了新窗口，请允许弹窗后重试'); URL.revokeObjectURL(url); }
+  else { setTimeout(() => URL.revokeObjectURL(url), 60000); }
+}
+
+function buildPrintHTML(cells, dateStr) {
+  const cellsHTML = cells.map(c => (
+    '<div class="print-cell">' +
+      '<div class="pc-route">线路 ' + c.route + '</div>' +
+      (c.img ? '<img src="' + c.img + '" alt="QR">' : '<div style="width:150px;height:150px;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;color:#999;">QR生成失败</div>') +
+      '<div class="pc-id">' + (c.gistId ? c.gistId.substring(0, 10) : '') + '</div>' +
+    '</div>'
+  )).join('');
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>批量打印二维码 ' + dateStr + '</title>' +
+    '<style>' +
+    'body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:0;background:#fff;}' +
+    '.toolbar{text-align:center;padding:14px;background:#f0f4f8;border-bottom:2px solid #1a73e8;}' +
+    '.toolbar h2{margin:0 0 4px;font-size:18px;color:#1a73e8;}' +
+    '.toolbar .sub{font-size:13px;color:#666;margin-bottom:10px;}' +
+    '.toolbar button{padding:8px 22px;margin:0 4px;font-size:14px;cursor:pointer;border:1px solid #ccc;border-radius:6px;background:#fff;}' +
+    '.toolbar button.primary{background:#1a73e8;color:#fff;border-color:#1a73e8;font-weight:600;}' +
+    '.toolbar button:hover{opacity:0.85;}' +
+    '.batch-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px;}' +
+    '.print-cell{border:1.5px solid #333;padding:10px;text-align:center;page-break-inside:avoid;background:#fff;border-radius:6px;}' +
+    '.pc-route{font-size:18px;font-weight:700;margin-bottom:6px;color:#222;}' +
+    '.print-cell img{width:150px;height:150px;display:block;margin:0 auto;}' +
+    '.pc-id{font-size:9px;color:#999;margin-top:6px;font-family:monospace;word-break:break-all;}' +
+    '@media print{body{padding:0;}.toolbar{display:none!important;}.batch-grid{gap:6px;padding:8px;}.print-cell{padding:6px;}.pc-route{font-size:14px;}.print-cell img{width:120px;height:120px;}@page{size:A4;margin:1cm;}}' +
+    '</style></head><body>' +
+    '<div class="toolbar"><h2>📦 批量打印二维码</h2><div class="sub">日期 ' + dateStr + ' · 共 ' + cells.length + ' 条线路</div>' +
+    '<button class="primary" onclick="window.print()">🖨️ 打印 / 另存为 PDF</button>' +
+    '<button onclick="window.close()">关闭</button>' +
+    '</div>' +
+    '<div class="batch-grid">' + cellsHTML + '</div>' +
+    '</body></html>';
+}
+
+function copyMasterQrUrl() {
+  if (!window._masterGistUrl) { showToast('总码链接未生成'); return; }
+  const txt = window._masterGistUrl;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(() => showToast('已复制总码链接')).catch(() => fallbackCopy(txt));
+  } else {
+    fallbackCopy(txt);
+  }
+  function fallbackCopy(s) {
+    const ta = document.createElement('textarea');
+    ta.value = s; ta.style.position = 'fixed'; ta.style.left = '-9999px';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); showToast('已复制总码链接'); } catch(e) { showToast('复制失败，请手动复制'); }
+    document.body.removeChild(ta);
+  }
+}
+
 // ========== 历史 ==========
 function renderHistory() {
   const orders = getOrders();
@@ -929,12 +1057,9 @@ function showOrderQr(id) {
   if (o) { window._qrOrderList = [o]; window._qrIndex = 0; showQrModal(o); updateQrNavButtons(); }
 }
 function deleteOrder(id) {
-  console.log('deleteOrder called with id:', id);
   if (!confirm('确定删除该送货单吗？')) return;
   let orders = getOrders();
-  console.log('before delete:', orders.length);
   orders = orders.filter(o => o.id !== id);
-  console.log('after delete:', orders.length);
   saveOrders(orders);
   renderHistory();
   showToast('送货单已删除');
