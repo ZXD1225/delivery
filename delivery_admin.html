@@ -215,12 +215,7 @@ textarea { resize: vertical; min-height: 80px; font-family: inherit; }
   <div class="qr-modal-content">
     <button class="qr-close-x" onclick="closeQrModal()" title="关闭">×</button>
     <h3>送货单二维码</h3>
-    <div class="master-qr-section" id="masterQrSection" style="display:none;">
-      <p style="font-size:13px;color:#1a73e8;font-weight:600;">📦 总二维码（管理员扫码查看全部线路）</p>
-      <div id="masterQrcode" style="display:flex;justify-content:center;margin:8px 0;"></div>
-      <p id="masterQrUrl" style="font-size:11px;color:#666;word-break:break-all;line-height:1.4;"></p>
-      <button class="btn btn-outline btn-sm" onclick="copyMasterQrUrl()" style="margin-top:6px;">📋 复制总码链接</button>
-    </div>
+    <p style="font-size:12px;color:#1a73e8;margin:-6px 0 10px;">第 1 张为 📦 总码（管理员抽检·全部线路），后面是各线路单码。可用「← 上一条 / 下一条 →」切换。</p>
 
     <div id="qrNav" style="display:none;margin-bottom:12px;">
       <button class="btn btn-outline btn-sm" id="btnPrevRoute" onclick="prevQrOrder()" style="margin-right:8px;">← 上一条</button>
@@ -1073,21 +1068,13 @@ function finishDeploy(results, token, statusEl, gistMap) {
   localStorage.setItem('gist_token', token);
   if (gistMap) localStorage.setItem('deployedGistMap', JSON.stringify(gistMap));
 
-  // === 渲染总码 QR ===
+  // === 记录总码 URL（供总码标签页/复制）===
   const masterResult = results.find(r => r.isMaster);
-  const masterSection = document.getElementById('masterQrSection');
-  if (masterResult && masterSection) {
-    masterSection.style.display = 'block';
-    const masterQrEl = document.getElementById('masterQrcode');
-    masterQrEl.innerHTML = '';
-    new QRCode(masterQrEl, { text: masterResult.url, width: 160, height: 160, colorDark: '#1a73e8', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.M });
-    document.getElementById('masterQrUrl').textContent = masterResult.url;
+  if (masterResult) {
     window._masterGistUrl = masterResult.url;
     try { localStorage.setItem('masterGistUrl', masterResult.url); localStorage.setItem('masterGistUpdatedAt', new Date().toISOString()); } catch(e){}
-  } else if (masterSection) {
-    masterSection.style.display = 'none';
   }
-  // 过滤掉 master，导航只用单线路
+  // 单线路结果
   const routeResults = results.filter(r => !r.isMaster);
 
   document.getElementById('qrModal').classList.add('show');
@@ -1097,16 +1084,18 @@ function finishDeploy(results, token, statusEl, gistMap) {
   const cfg = document.getElementById('gistConfig');
   if (cfg) cfg.style.display = 'none';
   routeResults.sort((a, b) => String(a.route).localeCompare(String(b.route), undefined, { numeric: true, sensitivity: 'base' }));
-  if (routeResults.length === 0) { statusEl.textContent = '❌ 创建失败，请检查 Token 与网络'; return; }
+  // 总码排在第 1 张，管理员第一时间就能看到；后面才是各线路
+  const navList = masterResult ? [masterResult].concat(routeResults) : routeResults;
+  if (navList.length === 0) { statusEl.textContent = '❌ 创建失败，请检查 Token 与网络'; return; }
   let dataCount = routeResults.filter(r => r.useDataUrl).length;
   let gistCount = routeResults.length - dataCount;
   let summary = '✅ 已创建 ' + routeResults.length + ' 条线路';
-  if (dataCount > 0) summary += '（' + dataCount + ' 条走短链·不受 GitHub 限流影响）';
+  if (dataCount > 0) summary += '（' + dataCount + ' 条走短链·免限流）';
   if (gistCount > 0) summary += '（' + gistCount + ' 条走 Gist）';
-  if (masterResult) summary += ' + 总码';
-  statusEl.innerHTML = summary; + (masterResult ? ' + 总码（管理员扫码看全部）' : '');
-  window._deployResults = routeResults;
-  localStorage.setItem('deployResults', JSON.stringify(routeResults));
+  if (masterResult) summary += '；📦 总码已生成' + (masterResult.shards ? '（' + masterResult.shards + ' 分片）' : '') + ' → 见弹窗第 1 张';
+  statusEl.textContent = summary;
+  window._deployResults = navList;
+  localStorage.setItem('deployResults', JSON.stringify(navList));
   window._qrIndex = 0;
   showDeployQr(0);
   renderDeployUrlList();
@@ -1176,17 +1165,22 @@ function openMasterTabUrl() {
 }
 
 function openDeployFromMaster() {
-  const token = localStorage.getItem('gist_token');
   const tokenInput = document.getElementById('gistToken');
-  if (tokenInput && token) tokenInput.value = token;
+  const saved = localStorage.getItem('gist_token') || '';
+  if (tokenInput) tokenInput.value = saved;
   const modal = document.getElementById('qrModal');
   if (modal) modal.classList.add('show');
   const btnUp = document.getElementById('btnGistUpload');
   if (btnUp) btnUp.style.display = 'inline-block';
   const cfg = document.getElementById('gistConfig');
   if (cfg) cfg.style.display = 'block';
-  const statusEl = document.getElementById('gistStatus');
-  if (statusEl) statusEl.textContent = '点击「部署到 Gist」按钮开始上传';
+  if (!saved) {
+    const statusEl = document.getElementById('gistStatus');
+    if (statusEl) statusEl.textContent = '请输入 GitHub Token 后点「部署到 Gist」';
+    return;
+  }
+  // 已有 Token：直接开始部署（总码会作为弹窗第 1 张出现）
+  uploadToGist();
 }
 
 function showDeployQr(idx) {
@@ -1194,11 +1188,18 @@ function showDeployQr(idx) {
   if (!results.length) return;
   window._qrIndex = idx;
   const r = results[idx];
-  document.getElementById('qrId').textContent = '线路：' + r.route;
-  document.getElementById('qrRoute').textContent = '独立 Gist · 数据隔离';
   const qrc = document.getElementById('qrcode'); qrc.innerHTML = '';
-  new QRCode(qrc, { text: r.url, width: 220, height: 220, colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.L });
-  document.getElementById('qrHint').textContent = '司机扫码直接打开（仅本线路数据）';
+  if (r.isMaster) {
+    document.getElementById('qrId').textContent = '📦 总码（全部线路 · 管理员抽检）';
+    document.getElementById('qrRoute').textContent = '管理员专属入口 · 扫码查看全部线路与库存';
+    new QRCode(qrc, { text: r.url, width: 220, height: 220, colorDark: '#1a73e8', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.M });
+    document.getElementById('qrHint').textContent = '管理员扫码查看全部线路（含所有订单与库存），请勿外传';
+  } else {
+    document.getElementById('qrId').textContent = '线路：' + r.route;
+    document.getElementById('qrRoute').textContent = '独立 Gist · 数据隔离';
+    new QRCode(qrc, { text: r.url, width: 220, height: 220, colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.L });
+    document.getElementById('qrHint').textContent = '司机扫码直接打开（仅本线路数据）';
+  }
   updateDeployNav();
 }
 function updateDeployNav() {
@@ -1217,6 +1218,10 @@ function renderDeployUrlList() {
   if (!box) return;
   let h = '';
   results.forEach(r => {
+    if (r.isMaster) {
+      h += '<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:2px solid #1a73e8;font-size:12px;background:#e8f0fe;"><b style="width:54px;flex-shrink:0;color:#1a73e8;">📦总码</b><span style="background:#1a73e8;color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;flex-shrink:0;">总码</span><input type="text" value="' + esc(r.url) + '" style="flex:1;border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:11px;" readonly><button class="btn btn-ghost btn-sm" style="padding:3px 8px;flex-shrink:0;" onclick="navigator.clipboard.writeText(\'' + r.url + '\').then(()=>showToast(\'已复制总码\'))">复制</button></div>';
+      return;
+    }
     const isShort = r.useDataUrl;
     const tag = isShort ? '<span style="background:#e6f4ea;color:#0f9d58;font-size:10px;padding:1px 5px;border-radius:3px;flex-shrink:0;">短链</span>' : '<span style="background:#fff8e1;color:#b06000;font-size:10px;padding:1px 5px;border-radius:3px;flex-shrink:0;">Gist</span>';
     h += '<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #eee;font-size:12px;"><b style="width:54px;flex-shrink:0;">线路' + esc(r.route) + '</b>' + tag + '<input type="text" value="' + esc(r.url) + '" style="flex:1;border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:11px;" readonly><button class="btn btn-ghost btn-sm" style="padding:3px 8px;flex-shrink:0;" onclick="navigator.clipboard.writeText(\'' + r.url + '\').then(()=>showToast(\'已复制线路' + esc(r.route) + '\'))">复制</button></div>';
