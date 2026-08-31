@@ -989,17 +989,36 @@ async function uploadToGist() {
   }
 
   // === 1) 先建总码（建好后再删旧），带退避重试 ===
+  // 总码 = 所有线路合并，可能 >1MB；按「整条线路」为粒度切片成多文件（delivery-all-1.json … N.json），
+  // 保证单条线路订单不被截断，司机端按编号顺序拼回，数据完整性不受影响。
   statusEl.textContent = '🔄 创建总码...';
-  const _allPayload = JSON.stringify(orders.map(function (o) { return Object.assign({}, o, { validUntil: validUntil }); }));
-  if (_allPayload.length > 900000) {
-    statusEl.textContent = '⚠️ 全部线路合计 ' + Math.round(_allPayload.length / 1024) + 'KB，超出 Gist 单文件 1MB 上限，已跳过总码（单线路不受影响）';
+  const oldMaster = gistMap.__master;
+  // 给每条线路打 validUntil，并按 route 分组后分别序列化
+  const _byRoute = {};
+  orders.forEach(function (o) { ( _byRoute[o.route] = _byRoute[o.route] || [] ).push(Object.assign({}, o, { validUntil: validUntil })); });
+  const _routeJsons = Object.keys(_byRoute).map(function (rk) { return { route: rk, json: JSON.stringify(_byRoute[rk]) }; });
+  // 安全护栏：单条线路本身就超过 ~950KB 时无法切片（极端情况），跳过总码
+  const _huge = _routeJsons.find(function (rp) { return rp.json.length > 950000; });
+  if (_huge) {
+    statusEl.textContent = '⚠️ 线路「' + _huge.route + '」单条已达 ' + Math.round(_huge.json.length / 1024) + 'KB，超 Gist 单文件 1MB 上限，已跳过总码（单线路不受影响）';
   } else {
-    const oldMaster = gistMap.__master;
+    // 装箱：每个分片 ≤ 850KB（留出余量，Gist 单文件上限 ≈1MB）。分片内容为「扁平订单数组」，司机端直接拼回，避免嵌套。
+    const _routeArrs = Object.keys(_byRoute).map(function (rk) { return _byRoute[rk]; }); // 每条线路 = 订单对象数组
+    const _SHARD_MAX = 850000;
+    const _shards = [];
+    let _cur = [], _curSize = 0;
+    _routeArrs.forEach(function (arr) {
+      const _sz = JSON.stringify(arr).length + 1; // +1 逗号
+      if (_cur.length > 0 && _curSize + _sz > _SHARD_MAX) { _shards.push(_cur); _cur = []; _curSize = 0; }
+      _cur = _cur.concat(arr); _curSize += _sz;
+    });
+    if (_cur.length > 0) _shards.push(_cur);
+
     const masterFiles = {};
-    masterFiles['delivery-all.json'] = { content: _allPayload };
+    _shards.forEach(function (shardArr, i) { masterFiles['delivery-all-' + (i + 1) + '.json'] = { content: JSON.stringify(shardArr) }; });
     if (invContent) masterFiles['inventory.json'] = { content: invContent };
-    masterFiles['meta.json'] = { content: JSON.stringify({ isMaster: true, date: dateStr, validUntil: validUntil, count: orders.length }) };
-    const masterBody = JSON.stringify({ description: '送货单 总码 全部线路' + orders.length + '条 ' + dateStr + (invContent ? '（含库存）' : ''), public: false, files: masterFiles });
+    masterFiles['meta.json'] = { content: JSON.stringify({ isMaster: true, date: dateStr, validUntil: validUntil, count: orders.length, shards: _shards.length }) };
+    const masterBody = JSON.stringify({ description: '送货单 总码 全部线路' + orders.length + '条 ' + dateStr + (invContent ? '（含库存）' : '') + ' 分片' + _shards.length, public: false, files: masterFiles });
     let gist = null, lastErr = '';
     for (let attempt = 1; attempt <= 4 && !gist; attempt++) {
       try {
@@ -1014,8 +1033,8 @@ async function uploadToGist() {
     }
     if (gist) {
       gistMap.__master = gist.id;
-      results.push({ route: '📦总码', id: gist.id, url: base + '?gist=' + gist.id + qrTokenSuffix('&'), isMaster: true });
-      statusEl.textContent = '✅ 总码已创建（线路 Gist 即将开始）...';
+      results.push({ route: '📦总码', id: gist.id, url: base + '?gist=' + gist.id + qrTokenSuffix('&'), isMaster: true, shards: _shards.length });
+      statusEl.textContent = '✅ 总码已创建（共 ' + _shards.length + ' 分片，线路 Gist 即将开始）...';
       if (oldMaster && oldMaster !== gist.id) await delGistSilent(oldMaster);
     } else {
       // 总码失败不阻塞，单线路二维码仍可用；保留旧总码

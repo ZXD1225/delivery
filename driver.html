@@ -794,16 +794,34 @@ function fetchGistViaApi(gistId, signal) {
     .then(gist => {
       const files = (gist && gist.files) || {};
       let orders = null, inv = null, meta = null;
+      const shardList = []; // 总码分片：{idx, arr}
       for (const k in files) {
         const content = files[k].content;
         if (!content) continue;
+        // 总码分片文件 delivery-all-1.json … N.json
+        const m = /^delivery-all-(\d+)\.json$/.exec(k);
+        if (m) {
+          try { const arr = JSON.parse(content); if (Array.isArray(arr)) shardList.push({ idx: parseInt(m[1], 10), arr: arr }); } catch (e) {}
+          continue;
+        }
+        // 旧版单文件总码
+        if (k === 'delivery-all.json') {
+          try { const arr = JSON.parse(content); if (Array.isArray(arr) && !orders) orders = arr; } catch (e) {}
+          continue;
+        }
         try {
           const obj = JSON.parse(content);
-          if (Array.isArray(obj)) orders = obj;
+          if (Array.isArray(obj)) { if (!orders && shardList.length === 0) orders = obj; }
           else if (obj && obj.bySku) inv = obj;
-          else if (obj && obj.restaurants) orders = obj;
+          else if (obj && obj.restaurants) { if (!orders) orders = obj; }
         } catch (e) {}
         if (k === 'meta.json') { try { meta = JSON.parse(content); } catch (e) {} }
+      }
+      if (shardList.length > 0) {
+        shardList.sort(function (a, b) { return a.idx - b.idx; });
+        let merged = [];
+        shardList.forEach(function (s) { merged = merged.concat(s.arr); });
+        orders = orders ? orders.concat(merged) : merged;
       }
       if (!orders && !inv) throw new Error('Gist 内容为空或格式无法识别');
       return { orders: orders, inv: inv, meta: meta };
@@ -816,6 +834,35 @@ function fetchGistViaRaw(gistId, file, signal) {
     let orders = null;
     try { orders = JSON.parse(text); } catch (e) { throw new Error('CDN 内容不是合法 JSON'); }
     return { orders: orders, inv: null, meta: null };
+  });
+}
+
+// 通道②-总码：先读 meta.json 拿分片数，再并行抓 delivery-all-1.json … N.json 拼回（CDN 匿名、无限流）
+function fetchGistShardsViaRaw(gistId, signal) {
+  function readOne(file) { return fetchText(gistRawBase(gistId) + file, signal); }
+  return readOne('meta.json').then(text => {
+    let meta = null, shards = 0;
+    try { meta = JSON.parse(text); shards = (meta && meta.shards) ? meta.shards : 0; } catch (e) {}
+    const names = shards > 0
+      ? Array.from({ length: shards }, function (_, i) { return 'delivery-all-' + (i + 1) + '.json'; })
+      : ['delivery-all-1.json']; // meta 缺失时退路
+    return Promise.all(names.map(readOne)).then(texts => {
+      let orders = [];
+      texts.forEach(function (t) { if (t) { try { const a = JSON.parse(t); if (Array.isArray(a)) orders = orders.concat(a); } catch (e) {} } });
+      if (!orders.length) throw new Error('CDN 分片内容为空');
+      return { orders: orders, inv: null, meta: meta };
+    });
+  }).catch(err => {
+    // meta.json 取不到（旧部署/网络）时，兜底试 delivery-all-1.json 与 delivery-all.json
+    return Promise.all([
+      readOne('delivery-all-1.json').catch(() => null),
+      readOne('delivery-all.json').catch(() => null)
+    ]).then(results => {
+      let orders = [];
+      results.forEach(function (t) { if (t) { try { const a = JSON.parse(t); if (Array.isArray(a)) orders = orders.concat(a); } catch (e) {} } });
+      if (!orders.length) throw err;
+      return { orders: orders, inv: null, meta: null };
+    });
   });
 }
 
@@ -840,13 +887,12 @@ function loadFromGist(gistId) {
 
   const routeParam = new URLSearchParams(window.location.search).get('route');
   // 文件名固定（后台部署时约定），CDN 通道才能直接拼出地址
-  const rawFile = routeParam
-    ? ('delivery-' + encodeURIComponent(routeParam) + '.json')
-    : 'delivery-all.json';
+  const rawFile = routeParam ? ('delivery-' + encodeURIComponent(routeParam) + '.json') : null;
 
   const sources = [
     { name: 'GitHub API', run: sig => fetchGistViaApi(gistId, sig) },
-    { name: 'Gist CDN',   run: sig => fetchGistViaRaw(gistId, rawFile, sig) }
+    // 单线路走单文件；总码（无 route）走分片拼回
+    { name: 'Gist CDN',   run: sig => routeParam ? fetchGistViaRaw(gistId, rawFile, sig) : fetchGistShardsViaRaw(gistId, sig) }
   ];
 
   function trySource(index, lastErr) {
