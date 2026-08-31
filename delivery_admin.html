@@ -215,7 +215,14 @@ textarea { resize: vertical; min-height: 80px; font-family: inherit; }
   <div class="qr-modal-content">
     <button class="qr-close-x" onclick="closeQrModal()" title="关闭">×</button>
     <h3>送货单二维码</h3>
-    <p style="font-size:12px;color:#1a73e8;margin:-6px 0 10px;">第 1 张为 📦 总码（管理员抽检·全部线路），后面是各线路单码。可用「← 上一条 / 下一条 →」切换。</p>
+    <p style="font-size:12px;color:#1a73e8;margin:-6px 0 10px;">下面轮播「第 1 张」为 📦 总码，可用「← 上一条 / 下一条 →」切换。</p>
+
+    <div class="master-qr-section" id="masterQrSection" style="display:none;">
+      <p style="font-size:13px;color:#1a73e8;font-weight:600;">📦 总码（管理员抽检·全部线路）</p>
+      <div id="masterQrcode" style="display:flex;justify-content:center;margin:8px 0;"></div>
+      <p id="masterQrUrl" style="font-size:11px;color:#666;word-break:break-all;line-height:1.4;"></p>
+      <button class="btn btn-outline btn-sm" onclick="copyMasterQrUrl()" style="margin-top:6px;">📋 复制总码链接</button>
+    </div>
 
     <div id="qrNav" style="display:none;margin-bottom:12px;">
       <button class="btn btn-outline btn-sm" id="btnPrevRoute" onclick="prevQrOrder()" style="margin-right:8px;">← 上一条</button>
@@ -233,7 +240,7 @@ textarea { resize: vertical; min-height: 80px; font-family: inherit; }
     <p style="font-size:12px;color:#999;margin-top:8px;" id="qrHint">司机扫码后复制文本 → 打开 driver.html → 粘贴导入</p>
     <div class="btn-group" style="justify-content:center;margin-top:12px;">
       <button class="btn btn-outline btn-sm" id="btnCopyData" onclick="copyDriverData()" style="display:none;">复制数据</button>
-      <button class="btn btn-gist btn-sm" id="btnGistUpload" onclick="uploadToGist()" style="display:none;">部署到 Gist（慢速·2并发·1.5s间隔）</button><button class="btn" id="btnGistTest" onclick="testGistToken()" style="background:#0f9d58;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;margin-left:6px;font-size:13px;">🧪 测试</button>
+      <button class="btn btn-gist btn-sm" id="btnGistUpload" onclick="uploadToGist()" style="display:none;">部署到 Gist（串行·1并发·1s间隔·约45秒）</button><button class="btn" id="btnGistTest" onclick="testGistToken()" style="background:#0f9d58;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;margin-left:6px;font-size:13px;">🧪 测试</button>
       <button class="btn btn-primary" onclick="closeQrModal()">关闭</button>
     </div>
     <div id="gistConfig" style="display:none;margin-top:12px;padding-top:10px;border-top:1px solid #e0e0e0;">
@@ -968,7 +975,7 @@ async function uploadToGist() {
         _dataUrl = base + '?data=' + _compressed + _tokenHash;
       } catch (e) {}
       const _useData = _dataUrl.length > 0 && _dataUrl.length <= 1500;
-      results[idx] = { route: route, id: gist.id, url: _useData ? _dataUrl : _gistUrl, gistUrl: _gistUrl, dataUrl: _dataUrl, useDataUrl: _useData };
+      results.push({ route: route, id: gist.id, url: _useData ? _dataUrl : _gistUrl, gistUrl: _gistUrl, dataUrl: _dataUrl, useDataUrl: _useData });
       // 新码建好后再删旧的 —— 即使前面失败，旧码仍可用，不会变死码
       if (oldId && oldId !== gist.id) await delGistSilent(oldId);
     } else {
@@ -976,9 +983,9 @@ async function uploadToGist() {
       console.warn('线路 ' + route + ' 创建失败（保留旧码）：' + lastErr);
       if (oldId) {
         const _keep = base + '?gist=' + oldId + '&route=' + encodeURIComponent(route) + qrTokenSuffix('&');
-        results[idx] = { route: route, id: oldId, url: _keep, gistUrl: _keep, urlKeepOld: true };
+        results.push({ route: route, id: oldId, url: _keep, gistUrl: _keep, urlKeepOld: true });
       } else {
-        results[idx] = { route: route, id: '', url: '', error: '首次创建失败：' + lastErr };
+        results.push({ route: route, id: '', url: '', error: '首次创建失败：' + lastErr });
       }
     }
   }
@@ -988,14 +995,18 @@ async function uploadToGist() {
   // 保证单条线路订单不被截断，司机端按编号顺序拼回，数据完整性不受影响。
   statusEl.textContent = '🔄 创建总码...';
   const oldMaster = gistMap.__master;
+  let masterSkipReason = ''; // 总码跳过时在收尾处显示
   // 给每条线路打 validUntil，并按 route 分组后分别序列化
   const _byRoute = {};
   orders.forEach(function (o) { ( _byRoute[o.route] = _byRoute[o.route] || [] ).push(Object.assign({}, o, { validUntil: validUntil })); });
   const _routeJsons = Object.keys(_byRoute).map(function (rk) { return { route: rk, json: JSON.stringify(_byRoute[rk]) }; });
+  console.log('[总码] 线路数=' + _routeJsons.length, '最大单线路=' + Math.max.apply(null, _routeJsons.map(rp => rp.json.length)) + ' 字节');
   // 安全护栏：单条线路本身就超过 ~950KB 时无法切片（极端情况），跳过总码
   const _huge = _routeJsons.find(function (rp) { return rp.json.length > 950000; });
   if (_huge) {
-    statusEl.textContent = '⚠️ 线路「' + _huge.route + '」单条已达 ' + Math.round(_huge.json.length / 1024) + 'KB，超 Gist 单文件 1MB 上限，已跳过总码（单线路不受影响）';
+    masterSkipReason = '线路「' + _huge.route + '」单条 ' + Math.round(_huge.json.length / 1024) + 'KB，超过 Gist 单文件 1MB 上限';
+    statusEl.textContent = '⚠️ ' + masterSkipReason + '，已跳过总码（单线路不受影响）';
+    console.warn('[总码] 跳过：' + masterSkipReason);
   } else {
     // 装箱：每个分片 ≤ 850KB（留出余量，Gist 单文件上限 ≈1MB）。分片内容为「扁平订单数组」，司机端直接拼回，避免嵌套。
     const _routeArrs = Object.keys(_byRoute).map(function (rk) { return _byRoute[rk]; }); // 每条线路 = 订单对象数组
@@ -1008,6 +1019,7 @@ async function uploadToGist() {
       _cur = _cur.concat(arr); _curSize += _sz;
     });
     if (_cur.length > 0) _shards.push(_cur);
+    console.log('[总码] 分片数=' + _shards.length, '各分片大小=' + _shards.map((s, i) => 'delivery-all-' + (i + 1) + ':' + Math.round(JSON.stringify(s).length / 1024) + 'KB').join(', '));
 
     const masterFiles = {};
     _shards.forEach(function (shardArr, i) { masterFiles['delivery-all-' + (i + 1) + '.json'] = { content: JSON.stringify(shardArr) }; });
@@ -1021,7 +1033,7 @@ async function uploadToGist() {
         const j = await r.json();
         if (j.id) { gist = j; }
         else {
-          lastErr = j.message || '未知错误';
+          lastErr = (j.message || '未知错误') + (j.errors ? ' ' + JSON.stringify(j.errors) : '');
           if (/rate limit|secondary|abuse|429/i.test(lastErr)) { statusEl.textContent = '⏳ 总码触发限流，等待 ' + (3000 * attempt / 1000) + 's 重试(' + attempt + '/4)...'; await sleep(3000 * attempt); } else { break; }
         }
       } catch (e) { lastErr = e.message; statusEl.textContent = '⏳ 总码网络抖动，等待 ' + (2000 * attempt / 1000) + 's 重试(' + attempt + '/4)...'; await sleep(2000 * attempt); }
@@ -1030,11 +1042,13 @@ async function uploadToGist() {
       gistMap.__master = gist.id;
       results.push({ route: '📦总码', id: gist.id, url: base + '?gist=' + gist.id + qrTokenSuffix('&'), isMaster: true, shards: _shards.length });
       statusEl.textContent = '✅ 总码已创建（共 ' + _shards.length + ' 分片，线路 Gist 即将开始）...';
+      console.log('[总码] 创建成功，gistId=' + gist.id);
       if (oldMaster && oldMaster !== gist.id) await delGistSilent(oldMaster);
     } else {
       // 总码失败不阻塞，单线路二维码仍可用；保留旧总码
-      statusEl.textContent = '⚠️ 总码创建失败（' + (lastErr || '').slice(0, 80) + '）· 单线路继续...';
-      console.warn('总码失败：' + lastErr);
+      masterSkipReason = '总码创建失败：' + (lastErr || '未知错误').slice(0, 120);
+      statusEl.textContent = '⚠️ ' + masterSkipReason + ' · 单线路继续...';
+      console.warn('[总码] ' + masterSkipReason);
     }
   }
   await sleep(2000);  // 总码后多等 2s，避免立即触发二次限流
@@ -1051,7 +1065,8 @@ async function uploadToGist() {
       if (i >= orders.length) return;
       await processRoute(orders[i], i);
       completed++;
-      statusEl.textContent = '🔄 创建中 ' + completed + '/' + orders.length + '...';
+      const remain = orders.length - completed;
+      statusEl.textContent = '🔄 创建中 ' + completed + '/' + orders.length + '（线路 ' + orders[i].route + '）' + remain + ' 条剩余，约 ' + remain + ' 秒...';
       if (i < orders.length - 1) await sleep(ROUTE_GAP);
     }
   }
@@ -1062,9 +1077,9 @@ async function uploadToGist() {
 
   // === 4) 收尾 ===
   if (btnDeploy) btnDeploy.disabled = false;
-  finishDeploy(results, token, statusEl, gistMap);
+  finishDeploy(results, token, statusEl, gistMap, masterSkipReason);
 }
-function finishDeploy(results, token, statusEl, gistMap) {
+function finishDeploy(results, token, statusEl, gistMap, masterSkipReason) {
   localStorage.setItem('gist_token', token);
   if (gistMap) localStorage.setItem('deployedGistMap', JSON.stringify(gistMap));
 
@@ -1076,6 +1091,7 @@ function finishDeploy(results, token, statusEl, gistMap) {
   }
   // 单线路结果
   const routeResults = results.filter(r => !r.isMaster);
+  console.log('[finishDeploy] masterResult=' + (masterResult ? 'yes(shards=' + masterResult.shards + ')' : 'no') + ' routeResults=' + routeResults.length + ' results=' + results.length);
 
   document.getElementById('qrModal').classList.add('show');
   document.getElementById('btnGistUpload').style.display = 'none';
@@ -1086,13 +1102,32 @@ function finishDeploy(results, token, statusEl, gistMap) {
   routeResults.sort((a, b) => String(a.route).localeCompare(String(b.route), undefined, { numeric: true, sensitivity: 'base' }));
   // 总码排在第 1 张，管理员第一时间就能看到；后面才是各线路
   const navList = masterResult ? [masterResult].concat(routeResults) : routeResults;
+  console.log('[finishDeploy] navList.length=' + navList.length + ' navList[0].isMaster=' + (navList[0] && navList[0].isMaster) + ' navList[0].route=' + (navList[0] && navList[0].route));
   if (navList.length === 0) { statusEl.textContent = '❌ 创建失败，请检查 Token 与网络'; return; }
+
+  // 弹窗顶部固定总码面板（与轮播第 1 张双保险）
+  const masterSection = document.getElementById('masterQrSection');
+  if (masterSection) {
+    if (masterResult) {
+      masterSection.style.display = 'block';
+      const masterQrEl = document.getElementById('masterQrcode');
+      masterQrEl.innerHTML = '';
+      new QRCode(masterQrEl, { text: masterResult.url, width: 160, height: 160, colorDark: '#1a73e8', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.M });
+      document.getElementById('masterQrUrl').textContent = masterResult.url;
+    } else {
+      masterSection.style.display = 'none';
+    }
+  }
   let dataCount = routeResults.filter(r => r.useDataUrl).length;
   let gistCount = routeResults.length - dataCount;
   let summary = '✅ 已创建 ' + routeResults.length + ' 条线路';
   if (dataCount > 0) summary += '（' + dataCount + ' 条走短链·免限流）';
   if (gistCount > 0) summary += '（' + gistCount + ' 条走 Gist）';
-  if (masterResult) summary += '；📦 总码已生成' + (masterResult.shards ? '（' + masterResult.shards + ' 分片）' : '') + ' → 见弹窗第 1 张';
+  if (masterResult) {
+    summary += '；📦 总码已生成' + (masterResult.shards ? '（' + masterResult.shards + ' 分片）' : '') + ' → 见弹窗第 1 张';
+  } else if (masterSkipReason) {
+    summary += '；⚠️ 总码未生成：' + masterSkipReason;
+  }
   statusEl.textContent = summary;
   window._deployResults = navList;
   localStorage.setItem('deployResults', JSON.stringify(navList));
@@ -1188,6 +1223,7 @@ function showDeployQr(idx) {
   if (!results.length) return;
   window._qrIndex = idx;
   const r = results[idx];
+  console.log('[showDeployQr] idx=' + idx + ' route=' + r.route + ' isMaster=' + r.isMaster + ' total=' + results.length);
   const qrc = document.getElementById('qrcode'); qrc.innerHTML = '';
   if (r.isMaster) {
     document.getElementById('qrId').textContent = '📦 总码（全部线路 · 管理员抽检）';
