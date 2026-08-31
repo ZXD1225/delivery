@@ -999,27 +999,39 @@ async function uploadToGist() {
   // 给每条线路打 validUntil，并按 route 分组后分别序列化
   const _byRoute = {};
   orders.forEach(function (o) { ( _byRoute[o.route] = _byRoute[o.route] || [] ).push(Object.assign({}, o, { validUntil: validUntil })); });
-  const _routeJsons = Object.keys(_byRoute).map(function (rk) { return { route: rk, json: JSON.stringify(_byRoute[rk]) }; });
-  console.log('[总码] 线路数=' + _routeJsons.length, '最大单线路=' + Math.max.apply(null, _routeJsons.map(rp => rp.json.length)) + ' 字节');
-  // 安全护栏：单条线路本身就超过 ~950KB 时无法切片（极端情况），跳过总码
-  const _huge = _routeJsons.find(function (rp) { return rp.json.length > 950000; });
+  const _enc = new TextEncoder();
+  const _routeJsons = Object.keys(_byRoute).map(function (rk) {
+    const j = JSON.stringify(_byRoute[rk]);
+    return { route: rk, json: j, bytes: _enc.encode(j).length };
+  });
+  console.log('[总码] 线路数=' + _routeJsons.length, '最大单线路=' + Math.max.apply(null, _routeJsons.map(rp => rp.bytes)) + ' 字节(UTF-8)');
+  // 安全护栏：单条线路本身就超过 ~950KB(UTF-8) 时无法切片（极端情况），跳过总码
+  const _huge = _routeJsons.find(function (rp) { return rp.bytes > 950000; });
   if (_huge) {
-    masterSkipReason = '线路「' + _huge.route + '」单条 ' + Math.round(_huge.json.length / 1024) + 'KB，超过 Gist 单文件 1MB 上限';
+    masterSkipReason = '线路「' + _huge.route + '」单条 ' + Math.round(_huge.bytes / 1024) + 'KB(UTF-8)，超过 Gist 单文件 1MB 上限';
     statusEl.textContent = '⚠️ ' + masterSkipReason + '，已跳过总码（单线路不受影响）';
     console.warn('[总码] 跳过：' + masterSkipReason);
   } else {
-    // 装箱：每个分片 ≤ 850KB（留出余量，Gist 单文件上限 ≈1MB）。分片内容为「扁平订单数组」，司机端直接拼回，避免嵌套。
+    // 装箱：按真实 UTF-8 字节数封顶，每个分片 ≤ 700KB（远低于 Gist 单文件 1MB 红线）。
+    // 关键：JS 字符串 .length 把中文(CJK) 1 字符计为 1，但 GitHub 按 UTF-8 存储（CJK=3 字节），
+    // 必须用 TextEncoder 取真实字节数，否则中文地址多的分片会冲过 1MB（旧版正是这个 bug）。
+    // 分片内容为「扁平订单数组」，司机端按编号顺序拼回，避免嵌套。
     const _routeArrs = Object.keys(_byRoute).map(function (rk) { return _byRoute[rk]; }); // 每条线路 = 订单对象数组
-    const _SHARD_MAX = 850000;
+    const _SHARD_MAX = 700000;
     const _shards = [];
-    let _cur = [], _curSize = 0;
+    let _cur = [];
     _routeArrs.forEach(function (arr) {
-      const _sz = JSON.stringify(arr).length + 1; // +1 逗号
-      if (_cur.length > 0 && _curSize + _sz > _SHARD_MAX) { _shards.push(_cur); _cur = []; _curSize = 0; }
-      _cur = _cur.concat(arr); _curSize += _sz;
+      const _cand = _cur.length ? _cur.concat(arr) : arr.slice();
+      const _byteLen = _enc.encode(JSON.stringify(_cand)).length;
+      if (_cur.length > 0 && _byteLen > _SHARD_MAX) {
+        _shards.push(_cur);
+        _cur = arr.slice();
+      } else {
+        _cur = _cand;
+      }
     });
     if (_cur.length > 0) _shards.push(_cur);
-    console.log('[总码] 分片数=' + _shards.length, '各分片大小=' + _shards.map((s, i) => 'delivery-all-' + (i + 1) + ':' + Math.round(JSON.stringify(s).length / 1024) + 'KB').join(', '));
+    console.log('[总码] 分片数=' + _shards.length, '各分片大小(UTF-8)=' + _shards.map((s, i) => 'delivery-all-' + (i + 1) + ':' + Math.round(_enc.encode(JSON.stringify(s)).length / 1024) + 'KB').join(', '));
 
     const masterFiles = {};
     _shards.forEach(function (shardArr, i) { masterFiles['delivery-all-' + (i + 1) + '.json'] = { content: JSON.stringify(shardArr) }; });
