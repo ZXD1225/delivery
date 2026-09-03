@@ -845,7 +845,7 @@ function fetchGistShardsViaRaw(gistId, signal) {
     try { meta = JSON.parse(text); shards = (meta && meta.shards) ? meta.shards : 0; } catch (e) {}
     const names = shards > 0
       ? Array.from({ length: shards }, function (_, i) { return 'delivery-all-' + (i + 1) + '.json'; })
-      : ['delivery-all-1.json']; // meta 缺失时退路
+      : ['delivery-all.json']; // 修复：后台单文件总码就叫 delivery-all.json，直接抓，避免白打 404
     return Promise.all(names.map(readOne)).then(texts => {
       let orders = [];
       texts.forEach(function (t) { if (t) { try { const a = JSON.parse(t); if (Array.isArray(a)) orders = orders.concat(a); } catch (e) {} } });
@@ -992,6 +992,8 @@ function processGistData(data, gistId) {
   }
 
   showPage('page-search');
+  // 修复：扫码加载成功后必须渲染「最近送货单」列表，否则司机看不到任何线路
+  if (typeof renderRecentList === 'function') renderRecentList();
   showToast('✅ 数据加载完成');
 }
 
