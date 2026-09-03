@@ -217,7 +217,7 @@ textarea { resize: vertical; min-height: 80px; font-family: inherit; }
   <div class="qr-modal-content">
     <button class="qr-close-x" onclick="closeQrModal()" title="关闭">×</button>
     <h3>📦 总码（全部线路）</h3>
-    <p style="font-size:12px;color:#666;margin:-6px 0 12px;">1 个码通杀 · 司机扫码后输线路号查单</p>
+    <p id="qrSummary" style="font-size:12px;color:#666;margin:-6px 0 12px;">1 个 Gist · 司机扫码后输线路号查单</p>
 
     <!-- 总码 QR 已合并到主 qrcode 块 -->
 
@@ -896,9 +896,37 @@ async function uploadToGist() {
   const oldMaster = gistMap.__master;
 
   const files = {};
-  files['delivery-all.json'] = { content: JSON.stringify(orders) };
+  // 单总码：分片装箱。中文 1 字=3 字节（UTF-8），按真实字节数封顶 700KB；二维码仍然只有一个。
+  const _enc = new TextEncoder();
+  const _SHARD_MAX = 700000;
+  const _allBytes = _enc.encode(JSON.stringify(orders)).length;
+  let _shards;
+  if (_allBytes <= _SHARD_MAX) {
+    _shards = [orders];
+  } else {
+    _shards = [];
+    let _cur = [];
+    let _curBytes = 2; // '[]\n'
+    for (const _o of orders) {
+      const _oBytes = _enc.encode(JSON.stringify(_o)).length + 1; // +逗号
+      if (_cur.length > 0 && _curBytes + _oBytes > _SHARD_MAX) {
+        _shards.push(_cur);
+        _cur = [];
+        _curBytes = 2;
+      }
+      _cur.push(_o);
+      _curBytes += _oBytes;
+    }
+    if (_cur.length > 0) _shards.push(_cur);
+  }
+  console.log('[总码分片] 订单=' + orders.length + ' 总字节=' + _allBytes + ' 分片数=' + _shards.length);
+  _shards.forEach((_arr, _i) => {
+    const _sb = _enc.encode(JSON.stringify(_arr)).length;
+    console.log('  [总码分片] 第' + (_i + 1) + '片: ' + _arr.length + ' 条 / ' + _sb + ' 字节 / ' + Math.round(_sb / 1024) + 'KB' + (_sb > _SHARD_MAX ? ' ⚠️ 超限' : ' ✓'));
+    files['delivery-all-' + (_i + 1) + '.json'] = { content: JSON.stringify(_arr) };
+  });
   if (invContent) files['inventory.json'] = { content: invContent };
-  files['meta.json'] = { content: JSON.stringify({ isMaster: true, date: dateStr, validUntil: validUntil, count: orders.length }) };
+  files['meta.json'] = { content: JSON.stringify({ isMaster: true, date: dateStr, validUntil: validUntil, count: orders.length, shards: _shards.length, single: 'delivery-all-' }) };
   const body = JSON.stringify({
     description: '送货单 总码 全部线路' + orders.length + '条 ' + dateStr + (invContent ? '（含库存）' : ''),
     public: false,
@@ -942,9 +970,9 @@ async function uploadToGist() {
   const url = base + '?gist=' + gist.id + qrTokenSuffix('&');
 
   if (btnDeploy) btnDeploy.disabled = false;
-  finishDeploy([{ route: '📦总码', id: gist.id, url: url, isMaster: true, shards: 1, count: orders.length }], token, statusEl, gistMap);
+  finishDeploy([{ route: '📦总码', id: gist.id, url: url, isMaster: true, shards: _shards.length, count: orders.length }], token, statusEl, gistMap);
 }
-function renderMasterQr(url) {
+function renderMasterQr(url, shards) {
   const modal = document.getElementById('qrModal');
   if (modal) modal.classList.add('show');
   const upload = document.getElementById('btnGistUpload');
@@ -969,8 +997,10 @@ function renderMasterQr(url) {
   if (qrId) qrId.textContent = url;
   const qrRoute = document.getElementById('qrRoute');
   if (qrRoute) qrRoute.textContent = '共 ' + getOrders().length + ' 条线路 · 司机扫码后输线路号';
+  const summaryEl = document.getElementById('qrSummary');
+  if (summaryEl) summaryEl.textContent = (typeof shards === 'number' && shards > 1 ? '1 个 Gist · 数据已拆 ' + shards + ' 片（每片 < 1MB 上限）· ' : '1 个 Gist · ') + '司机扫码后输线路号查单';
   const statusEl = document.getElementById('gistStatus');
-  if (statusEl) statusEl.textContent = '✅ 总码已部署（扫码或下方复制链接）';
+  if (statusEl) statusEl.textContent = '✅ 总码已部署（' + (typeof shards === 'number' ? shards + ' 个分片 · ' : '') + '扫码或下方复制链接）';
 
   const dateEl = document.getElementById('masterQrDate');
   if (dateEl) {
@@ -1008,7 +1038,7 @@ function finishDeploy(results, token, statusEl, gistMap) {
     localStorage.setItem('masterGistUpdatedAt', new Date().toISOString());
   } catch(e){}
 
-  renderMasterQr(masterResult.url);
+  renderMasterQr(masterResult.url, masterResult.shards);
 }
 
 // ========== 总码标签页 ==========
